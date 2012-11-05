@@ -5,16 +5,17 @@ import atexit
 import traceback
 import logging
 import logging.handlers
+import uuid
+import redis
 import subprocess as sb
 from time import time, sleep
-import uuid
 try:
     import simplejson as js
 except:
     import json as js
 
-import redis
-from utils import getHost
+def getHost():
+    return os.uname()[1].split('.')[0]
 
 try:
     syslog_server = os.environ['SYSLOG']
@@ -23,7 +24,7 @@ except:
     print "ERROR: Need SYSLOG and REDIS environment variables defined."
     sys.exit(1)
 
-unique_id = getHost() + str(uuid.uuid1())
+unique_id = getHost() + '-' + str(uuid.uuid1())
 
 h = logging.handlers.SysLogHandler((syslog_server,10514))
 h.setLevel(logging.DEBUG)
