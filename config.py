@@ -1,5 +1,6 @@
 import os
 import subprocess as sb
+import shlex
 
 ### Definitions, don't change these ####
 class WorkGroup:
@@ -41,6 +42,8 @@ def pre_sync():
     p = sb.Popen('rsync -a lib {}{}'.format(cde,workdir).split())
     p.wait()
     p = sb.Popen('rsync -a build {}{}'.format(cde,workdir).split())
+    p = sb.Popen('rsync -aH mon.py {}{}'.format(cde,workdir).split())
+    p = sb.Popen('rsync -aH config.py {}{}'.format(cde,workdir).split())
     p.wait()
     print " CDE Update Done."
 
@@ -69,27 +72,35 @@ class Local(WorkGroup):
         pass #get to later
 
 class Workstation(WorkGroup):
-    def __init__(self, sshname, rootdir, workdir, python, cores):
-        self.workdir = workdir
-        self.rootdir = rootdir
+    def __init__(self, sshname, syncdir, workdir, python, cores):
         self.sshname = sshname
+        self.syncdir = syncdir
+        self.workdir = workdir
         self.python = python
         self.cores = cores
 
     def sync(self):
         print("Rsyncing to %s" % self.sshname)
-        p = sb.Popen('rsync -a cde-package {0}'.format(self.rootdir).split())
+        p = sb.Popen('rsync -aH cde-package {}:{}'.format(self.sshname,self.syncdir).split())
         p.wait()
         print("Rsync done.")
 
     def launch_workers(self):
-        os.chdir(self.workdir)
+        #os.chdir(self.workdir)
         env = os.environ.copy()
-        os.environ['REDIS'] = cfg['redis_server']
-        os.environ['SYSLOG'] = cfg['syslog_server']
-        spec = '{0} mon.py &;'.format(self.python)
-        print spec
-        p = sb.Popen((spec*self.cores).split(), env=env)
+        env['REDIS'] = cfg['redis_server']
+        env['SYSLOG'] = cfg['syslog_server']
+        spec = '{0} mon.py & '.format(self.python)
+        spec = 'ssh {} cd {}; '.format(self.sshname, self.workdir) + \
+                spec*self.cores
+        #spec = 'ssh {} cat /proc/cpuinfo '.format(self.sshname) 
+        print spec[:-2]
+        print ''
+        p = sb.Popen(shlex.split(spec[:-2]), 
+                env=env, 
+                bufsize=-1)
+                #shell=True)
+        p.wait()
 
     def kill_workers(self):
         pass #get to later
@@ -127,6 +138,6 @@ cfg['hosts'] = {
         'toxic' : Workstation('toxic', 
             '.',
             'cde-package/cde-root/home/bana/GSP/research/samc/code',
-            'python.cde',
-            4)
+            './python.cde',
+            1)
         }

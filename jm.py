@@ -84,7 +84,7 @@ where command is:
         jobhash = sha.sha(exp).hexdigest()
 
         for _ in range(N):
-            r.rpush('jobs:new', jobhash)
+            r.lpush('jobs:new', jobhash)
 
         r.hset('jobs:sources', jobhash, zlib.compress(exp))
 
@@ -105,7 +105,7 @@ where command is:
 
         for p in params:
             for _ in range(N):
-                r.rpush('jobs:new', jobhash+' %d'%p)
+                r.lpush('jobs:new', jobhash+' %d'%p)
                 # BLAST! this is unclean...
 
         if not os.path.exists('.exps'):
@@ -130,9 +130,12 @@ where command is:
         print('Waiting for all workers to stop...')
 
         try:
-            while r.zcard('workers:hb') > 0:
-                print("%d clients remaining." % num)
+            num = r.zcard('workers:hb')
+            while num > 0:
+                print("...%d workers remaining." % num)
                 time.sleep(1)
+                num = r.zcard('workers:hb')
+            print("All workers stopped.")
         except KeyboardInterrupt:
             print("Stopping")
         finally:
@@ -146,30 +149,30 @@ where command is:
         else:
             verbose=False
 
-        new = r.llen('jobs:new') or 0
-        working = r.llen('jobs:working') or 0
-        done = r.get('jobs:done') or 0
+        new = r.llen('jobs:new') or '0'
+        working = r.llen('jobs:working') or '0'
+        done = r.get('jobs:done') or '0'
 
         if not verbose:
-            print("\t%d jobs pending\n\t%d running\n\t%d completed"%
+            print("\t%s jobs pending\n\t%s running\n\t%s completed"%
                     (new, working, done))
         else:
-            print("Pending jobs (%d):" % new)
+            print("Pending jobs (%s):" % new)
             joblist = r.lrange('jobs:new', 0, -1)
             jobcounts = Counter(joblist)
             for h,count in jobcounts.iteritems():
-                print('\t%d: %s' % (count[:8]),h)
+                print('\t%s: %s' % (count[:8]),h)
 
-            print("\nIn-progress jobs (%d):"% working)
+            print("\nIn-progress jobs (%s):"% working)
             joblist = r.lrange('jobs:working', 0, -1)
             jobcounts = Counter(joblist)
             for h,count in jobcounts.iteritems():
-                print('\t%d: %s' % (count[:8]),h)
+                print('\t%s: %s' % (count[:8]),h)
 
-            print("\nDone jobs (%d):" % done)
+            print("\nDone jobs (%s):" % done)
             keys = r.keys('jobs:done:*')
             for k in keys:
-                print('\t%d: %s' % (r.hlen(k),k.split(':')[0][:8]))
+                print('\t%s: %s' % (r.llen(k),k.split(':')[-1][:8]))
 
     elif cmd == 'net':
         r = redis.StrictRedis(cfg['redis_server'])
@@ -190,7 +193,7 @@ where command is:
             print("The %d clients alive are:" % num)
             curr_time = r.time()
             for x in clients:
-                cl = js.loads(zlib.decompress(x))
-                print '\t{0.unique_id:<15} with hb {1:3.1f} seconds ago'\
-                    .format(cl, curr_time[0] + (curr_time[1]*1e-6) - int(r.zscore('clients-hb',x)))
+                cl = x #js.loads(zlib.decompress(x))
+                print '\t{0:<15} with hb {1:3.1f} seconds ago'\
+                    .format(cl, curr_time[0] + (curr_time[1]*1e-6) - int(r.zscore('workers:hb',x)))
 

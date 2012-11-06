@@ -1,11 +1,6 @@
-import sys
-import os
-import sha
-import atexit
-import traceback
+import sys, os, sha, atexit, traceback, uuid, zlib
 import logging
 import logging.handlers
-import uuid
 import redis
 import subprocess as sb
 from time import time, sleep
@@ -35,7 +30,7 @@ hstream = logging.StreamHandler()
 hstream.setLevel(logging.INFO)
 hstream.setFormatter(formatter)
 
-logger = logging.getLogger(unique_id + '-driver')
+logger = logging.getLogger(unique_id + '-monitor')
 logger.addHandler(h)
 logger.addHandler(hstream)
 logger.setLevel(logging.DEBUG)
@@ -48,15 +43,18 @@ sys.excepthook = log_uncaught_exceptions
 
 def recordDeath():
     if r is not None:
-        r.zrem('clients-hb', unique_id)
+        r.zrem('workers:hb', unique_id)
 
-def spawn(job, workhash):
-    env = os.environ
-    env['SAMC_JOB'] = job
-    env['WORKHASH'] = workhash
+def spawn(source, modname, param=None):
+    env = os.environ.copy()
+    if param:
+        env['PARAM'] = param
+    env['WORKHASH'] = source
     env['UNIQ_ID'] = unique_id
-    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:lib:build'
-    spec = 'python -m samcnet.experiment'
+    #syslog_server = os.environ['SYSLOG'] # not needed as already in os.environ
+    #redis_server = os.environ['REDIS']
+    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:lib:build' #TODO
+    spec = 'python -m {}'.format(modname)
     return sb.Popen(spec.split(), env=env)
 
 def kill(spawn):
@@ -68,16 +66,7 @@ def kill(spawn):
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == 'rebuild':
         logger.info('Beginning dummy run for CDE rebuild')
-        test = dict(
-                nodes = 5, 
-                samc_iters=10, 
-                numdata=5, 
-                priorweight=1, 
-                burn=0,
-                data_method='dirichlet',
-                numtemplate=5)
-        test = js.dumps(test)
-        x = spawn(test, sha.sha(test).hexdigest())
+        x = spawn('rebuild', 'samcnet.experiment') # TODO
         x.wait()
         sys.exit()
     else:
@@ -85,48 +74,52 @@ if __name__ == '__main__':
         r = redis.StrictRedis(redis_server)
         atexit.register(recordDeath)
         child = None
+        workhash = None
+        state = 'idle'
 
         while True:
-            r.zadd('clients-hb', r.time()[0], unique_id)
-            cmd = r.get('die')
-            if cmd == 'all' or cmd == getHost():
-                logger.info("Received die command, shutting down.")
-                for x in children:
-                    kill(x)
-                r.zrem('clients-hb', unique_id)
+            r.zadd('workers:hb', r.time()[0], unique_id)
+            cmd = r.get('workers:stop')
+            if cmd == 'ALL' or cmd == getHost():
+                logger.info("Received stop command, shutting down.")
+                if child and child.poll() == None:
+                    child.kill()
+                r.zrem('workers:hb', unique_id)
                 break
 
-            if child == None or child.poll() != None:
+            if state == 'idle':
+                #child is free
                 logger.info('Child free.')
-                if child is not None and child.returncode != 0:
-                    logger.warning("Child returned error return code %d", x.returncode)
-                with r.pipeline(transaction=True) as pipe: 
-                    # This is pretty ugly for decrementing a number atomically.
-                    while True:
-                        try:
-                            workhash = None
-                            pipe.watch('desired-samples')
-                            queue = pipe.hgetall('desired-samples')
-                            for h,num in queue.iteritems():
-                                if int(num) > 0:
-                                    logger.info("Found %s samples left on hash %s" % (num, h))
-                                    workhash = h
-                                    break
-                            if workhash != None:
-                                # We found some work!
-                                pipe.multi()
-                                pipe.hincrby('desired-samples', workhash, -1)
-                                pipe.execute()
-                            break
-                        except redis.WatchError:
-                            continue
-                    pipe.unwatch()
+                workhash = r.rpoplpush('jobs:new', 'jobs:working')
+                if workhash is None: # no work
+                    sleep(2)
+                else:
+                    state = 'spawn'
 
-            if workhash == None:
-                sleep(2)
-                continue
-            else:
-                job = r.hget('configs', workhash)
+            if state == 'spawn':
                 logger.info('Spawning a new child')
-                child = spawn(job, workhash)
-                workhash = None
+                wsplit = workhash.split()
+                if len(wsplit) == 1:
+                    source, env = workhash, None
+                else:
+                    source, env = wsplit
+                # write exp source out at .exps/<workhash>.py
+                with open('samcnet/'+source+'.py','w') as fid: #TODO
+                    fid.write(zlib.decompress(r.hget('jobs:sources', workhash)))
+                child = spawn(source, 'samcnet.'+source, env) #TODO blech...
+                state = 'working'
+
+            if state == 'working':
+                if child.poll() is None:
+                    sleep(2)
+                elif child.poll() != 0:
+                    logger.warning("Child returned error return code %d", child.returncode)
+                    r.lrem('jobs:working', 1, workhash)
+                    state = 'idle'
+                else: # we just finished a job
+                    r.lrem('jobs:working', 1, workhash)
+                    r.incr('jobs:done') 
+                    # and the spawn will write the result to
+                    # jobs:done:<workhash>
+                    state = 'idle'
+
