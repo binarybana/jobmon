@@ -151,7 +151,7 @@ where command is:
 
         new = r.llen('jobs:new') or '0'
         working = r.llen('jobs:working') or '0'
-        done = r.get('jobs:done') or '0'
+        done = r.get('jobs:numdone') or '0'
 
         if not verbose:
             print("\t%s jobs pending\n\t%s running\n\t%s completed"%
@@ -161,13 +161,13 @@ where command is:
             joblist = r.lrange('jobs:new', 0, -1)
             jobcounts = Counter(joblist)
             for h,count in jobcounts.iteritems():
-                print('\t%s: %s' % (count[:8]),h)
+                print('\t%d: %s' % (count, h[:8]))
 
             print("\nIn-progress jobs (%s):"% working)
             joblist = r.lrange('jobs:working', 0, -1)
             jobcounts = Counter(joblist)
             for h,count in jobcounts.iteritems():
-                print('\t%s: %s' % (count[:8]),h)
+                print('\t%d: %s' % (count, h[:8]))
 
             print("\nDone jobs (%s):" % done)
             keys = r.keys('jobs:done:*')

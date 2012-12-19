@@ -113,10 +113,23 @@ class SGEGroup(WorkGroup):
 
     def sync(self):
         print ("Beginning rsync to %s... " % self.sshname)
-        p = sb.Popen('rsync -acz {0} {1}:{2}'.format(cfg['local_workdir'], group).split())
+        print ("... rsync %s/cde-package -> %s:%s" % (cfg['local_workdir'], self.sshname, self.workdir))
+        p = sb.Popen('rsync -acz {0}/cde-package {1}:{2}'.format(cfg['local_workdir'], self.sshname, self.workdir).split())
+        ret = p.wait()
+        if ret != "0":
+            print("Success!")
+        else:
+            raise Exception("Rsync error with return code %s" % str(ret))
 
     def launch_workers(self):
-        pass
+        #qsub -N test -t 1:100 -j y samcjob.sh
+        p = sb.Popen('ssh {0} qsub -N dmon -e logs -o logs -t 1:{1} -j y samcjob.sh'.format(
+            self.sshname, self.cores).split())
+        ret = p.wait()
+        if ret != "0":
+            print("Success!")
+        else:
+            raise Exception("Error launching monitor daemons with return code %s" % str(ret))
 
     def kill_workers(self):
         pass

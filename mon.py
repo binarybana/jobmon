@@ -21,19 +21,21 @@ except:
 
 unique_id = getHost() + '-' + str(uuid.uuid1())
 
-h = logging.handlers.SysLogHandler((syslog_server,10514))
-h.setLevel(logging.DEBUG)
+level = logging.WARNING
+
+h = logging.handlers.SysLogHandler((syslog_server,514))
+h.setLevel(level)
 formatter = logging.Formatter('%(name)s: samc %(levelname)s %(message)s')
 h.setFormatter(formatter)
 
 hstream = logging.StreamHandler()
-hstream.setLevel(logging.INFO)
+hstream.setLevel(level)
 hstream.setFormatter(formatter)
 
 logger = logging.getLogger(unique_id + '-monitor')
 logger.addHandler(h)
 logger.addHandler(hstream)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(level)
 
 def log_uncaught_exceptions(ex_cls, ex, tb):
     logger.critical(''.join(traceback.format_tb(tb)))
@@ -78,48 +80,58 @@ if __name__ == '__main__':
         state = 'idle'
 
         while True:
-            r.zadd('workers:hb', r.time()[0], unique_id)
-            cmd = r.get('workers:stop')
-            if cmd == 'ALL' or cmd == getHost():
-                logger.info("Received stop command, shutting down.")
+            try:
+                r.zadd('workers:hb', r.time()[0], unique_id)
+                cmd = r.get('workers:stop')
+                if cmd == 'ALL' or cmd == getHost():
+                    logger.info("Received stop command, shutting down.")
+                    if child and child.poll() == None:
+                        child.kill()
+                    r.zrem('workers:hb', unique_id)
+                    break
+
+                if state == 'idle':
+                    #child is free
+                    workhash = r.rpoplpush('jobs:new', 'jobs:working')
+                    if workhash is None: # no work
+                        logger.info('Child free.')
+                        sleep(2)
+                    else:
+                        state = 'spawn'
+
+                if state == 'spawn':
+                    logger.info('Spawning a new child')
+                    wsplit = workhash.split()
+                    if len(wsplit) == 1:
+                        source, env = workhash, None
+                    else:
+                        source, env = wsplit
+                    # write exp source out at .exps/<workhash>.py
+                    with open('samcnet/'+source+'.py','w') as fid: #TODO
+                        fid.write(zlib.decompress(r.hget('jobs:sources', workhash)))
+                    child = spawn(source, 'samcnet.'+source, env) #TODO blech...
+                    state = 'working'
+
+                if state == 'working':
+                    if child.poll() is None:
+                        logger.info('Child is working.')
+                        sleep(2)
+                    elif child.poll() != 0:
+                        logger.warning("Child returned error return code %d", child.returncode)
+                        r.lrem('jobs:working', 1, workhash)
+                        state = 'idle'
+                    else: # we just finished a job
+                        logger.info("Child finished job, going back to idle")
+                        r.lrem('jobs:working', 1, workhash)
+                        r.incr('jobs:numdone') 
+                        # and the spawn will write the result to
+                        # jobs:done:<workhash>
+                        state = 'idle'
+            except KeyboardInterrupt:
+                # Exit gracefully
+                logger.info("Received keyboard stop command, shutting down.")
                 if child and child.poll() == None:
                     child.kill()
                 r.zrem('workers:hb', unique_id)
-                break
-
-            if state == 'idle':
-                #child is free
-                logger.info('Child free.')
-                workhash = r.rpoplpush('jobs:new', 'jobs:working')
-                if workhash is None: # no work
-                    sleep(2)
-                else:
-                    state = 'spawn'
-
-            if state == 'spawn':
-                logger.info('Spawning a new child')
-                wsplit = workhash.split()
-                if len(wsplit) == 1:
-                    source, env = workhash, None
-                else:
-                    source, env = wsplit
-                # write exp source out at .exps/<workhash>.py
-                with open('samcnet/'+source+'.py','w') as fid: #TODO
-                    fid.write(zlib.decompress(r.hget('jobs:sources', workhash)))
-                child = spawn(source, 'samcnet.'+source, env) #TODO blech...
-                state = 'working'
-
-            if state == 'working':
-                if child.poll() is None:
-                    sleep(2)
-                elif child.poll() != 0:
-                    logger.warning("Child returned error return code %d", child.returncode)
-                    r.lrem('jobs:working', 1, workhash)
-                    state = 'idle'
-                else: # we just finished a job
-                    r.lrem('jobs:working', 1, workhash)
-                    r.incr('jobs:done') 
-                    # and the spawn will write the result to
-                    # jobs:done:<workhash>
-                    state = 'idle'
+                sys.exit(0)
 

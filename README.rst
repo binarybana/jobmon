@@ -21,9 +21,11 @@ Redis Schema
 
 The Redis schema we are using for this is:
 
-jobs:new,jobs:working,jobs:done
-    The first two are lists of job source hashes, and jobs:done is a key of the 
-    number of done jobs.
+jobs:new,jobs:working,
+    Lists of job source hashes.
+
+jobs:numdone
+    The number of done jobs.
 
 jobs:done:{hash}
     The list containing the completed job results. For sweep jobs the hash will 
