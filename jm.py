@@ -56,7 +56,8 @@ where command is:
     cmd = sys.argv[1]
 
     if cmd == 'sync':
-        config.pre_sync()
+        if config.pre_sync() != 0:
+            sys.exit('Non-zero exit code on config.py:pre_sync()')
         hosts = gethosts()
         for h in hosts:
             cfg['hosts'][h].sync()

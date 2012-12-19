@@ -22,6 +22,9 @@ class WorkGroup:
 def pre_sync():
     """Will be performed before every sync"""
     ## User specific code:
+    def check_ret(code):
+        if code != 0:
+            return -1
     print "Updating CDE package..." 
     os.environ['LD_LIBRARY_PATH']='build:lib'
     os.environ['PYTHONPATH'] = cfg['local_workdir']
@@ -36,16 +39,20 @@ def pre_sync():
     #p = sb.Popen('/home/bana/bin/cde python -m samcnet.experiment'.split())
     #p.wait()
     p = sb.Popen('/home/bana/bin/cde python mon.py rebuild'.split())
-    p.wait()
-    p = sb.Popen('rsync -a samcnet {}{}'.format(cde,workdir).split())
-    p.wait()
-    p = sb.Popen('rsync -a lib {}{}'.format(cde,workdir).split())
-    p.wait()
-    p = sb.Popen('rsync -a build {}{}'.format(cde,workdir).split())
-    p = sb.Popen('rsync -aH mon.py {}{}'.format(cde,workdir).split())
-    p = sb.Popen('rsync -aH config.py {}{}'.format(cde,workdir).split())
-    p.wait()
+    check_ret(p.wait())
     print " CDE Update Done."
+    p = sb.Popen('rsync -a samcnet {}{}'.format(cde,workdir).split())
+    check_ret(p.wait())
+    p = sb.Popen('rsync -a lib {}{}'.format(cde,workdir).split())
+    check_ret(p.wait())
+    p = sb.Popen('rsync -a build {}{}'.format(cde,workdir).split())
+    check_ret(p.wait())
+    p = sb.Popen('rsync -aH mon.py {}{}'.format(cde,workdir).split())
+    check_ret(p.wait())
+    p = sb.Popen('rsync -aH config.py {}{}'.format(cde,workdir).split())
+    check_ret(p.wait())
+    print " CDE rsyncs Done."
+    return 0
 
 def post_sync():
     """Will be performed after every sync"""
