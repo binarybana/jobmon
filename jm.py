@@ -99,7 +99,7 @@ where command is:
         r = redis.StrictRedis(cfg['redis_server'])
         exp = open(sys.argv[2],'r').read()
         N = int(sys.argv[3])
-        params = map(int, sys.argv[3:])
+        params = map(int, sys.argv[3:]) # TODO or should this be 4:?
         assert len(params) > 0, "Need parameter values."
 
         jobhash = sha.sha(exp).hexdigest()

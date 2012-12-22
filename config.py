@@ -153,7 +153,7 @@ cfg['local_workdir'] = os.getcwd()
 #cfg['local_workdir'] = '/home/bana/GSP/research/samc/code'
 
 cfg['hosts'] = {
-        'wsgi'  : SGEGroup('wsgi', './', 20),
+        'wsgi'  : SGEGroup('wsgi', './', 200),
         'local' : Local(cfg['local_workdir']),
         'toxic' : Workstation('toxic', 
             '.',
