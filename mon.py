@@ -99,6 +99,8 @@ if __name__ == '__main__':
         atexit.register(recordDeath)
         child = None
         workhash = None
+        source = None
+        env = None
         state = 'idle'
 
         while True:
@@ -109,6 +111,7 @@ if __name__ == '__main__':
                     logger.info("Received stop command, shutting down.")
                     if child and child.poll() == None:
                         child.kill()
+                        r.lrem('jobs:working', 1, source)
                     r.zrem('workers:hb', unique_id)
                     break
 
@@ -128,7 +131,7 @@ if __name__ == '__main__':
                         source, env = workhash, None
                     else:
                         source, env = wsplit
-                    # write exp source out at .exps/<workhash>.py
+                    # write exp source out at .exps/<source>.py
                     if not os.path.exists('samcnet/'+source+'.py'):
                         with open('samcnet/'+source+'.py','w') as fid: #TODO
                             fid.write(zlib.decompress(r.hget('jobs:sources', source)))
@@ -153,7 +156,7 @@ if __name__ == '__main__':
                         r.lrem('jobs:working', 1, source)
                         r.incr('jobs:numdone') 
                         # and the spawn will write the result to
-                        # jobs:done:<workhash>
+                        # jobs:done:<source>
                         state = 'idle'
                     log_output(logger.info, q_stdout)
                     log_output(logger.error, q_stderr)
