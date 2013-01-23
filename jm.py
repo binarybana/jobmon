@@ -68,6 +68,7 @@ def postJob(r, source, N, param=None):
 
     r.hset('jobs:sources', jobhash, getSource(r, source))
     r.hset('jobs:times', jobhash, r.time()[0])
+    print "Posted; hash: %s" % jobhash[:8]
 
     if not os.path.exists('.exps'):
         os.makedirs('.exps')
