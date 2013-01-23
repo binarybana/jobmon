@@ -66,13 +66,14 @@ def postJob(r, source, N, param=None):
         else:
             r.lpush('jobs:new', jobhash)
 
-    r.hset('jobs:sources', jobhash, zlib.compress(source))
+    r.hset('jobs:sources', jobhash, getSource(r, source))
 
     if not os.path.exists('.exps'):
         os.makedirs('.exps')
     newfile = os.path.join('.exps', jobhash+'.py')
     if not os.path.exists(newfile):
-        shutil.copy(sys.argv[2], newfile)
+        with open(newfile,'w') as fid:
+            fid.write(zlib.decompress(getSource(r, source)))
 
 def descJob(r, source, desc):
     """ Describes job in jobs:descs:<hash>
@@ -94,6 +95,19 @@ def descJob(r, source, desc):
 
     r.hset('jobs:descs', jobhash, desc)
 
+def getSource(r, val):
+    """ Returns compressed source from file or (partial) hash"""
+    if val.endswith('.py'):
+        with open(val,'r') as fid:
+            return zlib.compress(fid.read())
+    if len(val) == sha.digest_size:
+        return r.hget('jobs:sources', val)
+
+    for h in r.hkeys('jobs:sources'):
+        if h.startswith(val):
+            return r.hget('jobs:sources', h)
+    sys.exit('Could not find valid source that began with hash %s' % val)
+
 def getHash(r, val):
     if val.endswith('.py'):
         with open(val,'r') as fid:
@@ -104,8 +118,7 @@ def getHash(r, val):
     for h in r.hkeys('jobs:sources'):
         if h.startswith(val):
             return h
-
-    sys.exit('Could not find valid source that began with hash %s' % val)
+    sys.exit('Could not find valid hash that began with hash %s' % val)
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -146,7 +159,7 @@ if __name__ == '__main__':
         postJob(r, exp, N)
 
         if len(sys.argv) == 5:
-            postDesc(r, exp, sys.argv[4])
+            descJob(r, exp, sys.argv[4])
 
     elif cmd == 'desc':
         r = redis.StrictRedis(cfg['redis_server'])
@@ -192,7 +205,6 @@ if __name__ == '__main__':
             r.delete('workers:stop')
     
     elif cmd == 'jobs':
-        print "test"
         r = redis.StrictRedis(cfg['redis_server'])
         
         if len(sys.argv) == 3:
@@ -250,6 +262,24 @@ if __name__ == '__main__':
                 cl = x #js.loads(zlib.decompress(x))
                 print '\t{0:<15} with hb {1:3.1f} seconds ago'\
                     .format(cl, curr_time[0] + (curr_time[1]*1e-6) - int(r.zscore('workers:hb',x)))
+
+    elif cmd == 'clean':
+        r = redis.StrictRedis(cfg['redis_server'])
+
+        done_keys = [x[10:] for x in r.keys('jobs:done:*')]
+        source_keys = r.hkeys('jobs:sources')
+        desc_keys = r.hkeys('jobs:descs')
+        for k in source_keys:
+            if k not in done_keys:
+                print "delete %s source" % k
+                r.hdel('jobs:sources', k)
+        for k in desc_keys:
+            if k not in done_keys:
+                print "delete %s desc" % k
+                r.hdel('jobs:descs', k)
+
+        r.delete('jobs:failed')
+        print("Done!")
 
     else:
         print "Command %s is not defined." % cmd
