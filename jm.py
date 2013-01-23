@@ -20,11 +20,16 @@ where command is:
     local <experiment file> - Run experiment file on 
         local system.
 
-    post <experiment file> <N> - Post job to queue to be 
-        run <N> times.
+    post <experiment file> <N> [desc] - Post job to queue to be 
+        run <N> times. Optional description string will be 
+        associated with this experiment for easy retrieval.
 
     sweep <experiment file> <N> <p1> <p2> [<p3>...] - 
         Post sweep job with each <p> to be run <N> times.
+
+    desc <experiment file> <text> - Small textual blurb 
+        describing the experiment file for easy retrieval 
+        in downstream processing.
 
     net - Network (children) status.
 
@@ -46,8 +51,14 @@ def gethosts():
     return hosts
 
 def postJob(r, source, N, param=None):
-    jobhash = sha.sha(exp).hexdigest()
-
+    """ Posts job in jobs:sources:<hash>
+    And pushes requests to jobs:new
+    Needs r: redis object
+    source: path to source or [partial] existing hash
+    N: number of repeats requested
+    [param] - for sweep runs
+    """
+    jobhash = getHash(r, source)
     for _ in range(N):
         if param:
             r.lpush('jobs:new', jobhash+' %s' % str(param))
@@ -55,13 +66,46 @@ def postJob(r, source, N, param=None):
         else:
             r.lpush('jobs:new', jobhash)
 
-    r.hset('jobs:sources', jobhash, zlib.compress(exp))
+    r.hset('jobs:sources', jobhash, zlib.compress(source))
 
     if not os.path.exists('.exps'):
         os.makedirs('.exps')
     newfile = os.path.join('.exps', jobhash+'.py')
     if not os.path.exists(newfile):
         shutil.copy(sys.argv[2], newfile)
+
+def descJob(r, source, desc):
+    """ Describes job in jobs:descs:<hash>
+    Needs r: redis object
+    source: path to source or [partial] existing hash
+    desc: short textual description.
+    """
+    jobhash = getHash(r, source)
+    if r.hexists('jobs:descs', jobhash):
+        old_desc = r.hget('jobs:descs', jobhash)
+        if desc != old_desc:
+            print("Warning: This job already has description:")
+            cont = input("Would you like to override? [y/n]: ")
+            if cont.upper().strip()[0] == 'Y':
+                print("Overwriting.")
+            else:
+                print("Exiting.")
+                sys.exit(0)
+
+    r.hset('jobs:descs', jobhash, desc)
+
+def getHash(r, val):
+    if val.endswith('.py'):
+        with open(val,'r') as fid:
+            return sha.sha(fid.read()).hexdigest()
+    if len(val) == sha.digest_size:
+        return val
+
+    for h in r.hkeys('jobs:sources'):
+        if h.startswith(val):
+            return h
+
+    sys.exit('Could not find valid source that began with hash %s' % val)
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -97,16 +141,26 @@ if __name__ == '__main__':
 
     elif cmd == 'post':
         r = redis.StrictRedis(cfg['redis_server'])
-        exp = open(sys.argv[2],'r').read()
+        exp = sys.argv[2]
         N = int(sys.argv[3])
-
         postJob(r, exp, N)
+
+        if len(sys.argv) == 5:
+            postDesc(r, exp, sys.argv[4])
+
+    elif cmd == 'desc':
+        r = redis.StrictRedis(cfg['redis_server'])
+
+        exp = sys.argv[2]
+
+        assert len(sys.argv) == 4, usage_string
+        descJob(r, exp, sys.argv[3])
 
     elif cmd == 'sweep':
         r = redis.StrictRedis(cfg['redis_server'])
-        exp = open(sys.argv[2],'r').read()
+        exp = sys.argv[2]
         N = int(sys.argv[3])
-        params = sys.argv[3:] # TODO or should this be 4:?
+        params = sys.argv[3:] 
         assert len(params) > 0, "Need parameter values."
 
         for p in params:
