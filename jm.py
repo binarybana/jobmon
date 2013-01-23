@@ -5,24 +5,7 @@ import redis
 import simplejson as js
 from collections import Counter
 
-def gethosts():
-    ''' Get and check hosts in sys.argv '''
-    if len(sys.argv) == 2:
-        hosts = cfg['hosts'].keys()
-    else:
-        hosts = sys.argv[2:]
-
-    for h in hosts:
-        if h not in cfg['hosts']:
-            print("%s not in host configs, exiting..." % h)
-            sys.exit(1)
-
-    return hosts
-
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print """Usage: jm command [args]
+usage_string = """Usage: jm command [args]
 where command is:
 
     sync [<host> ...] - Synchronize all or a subset of 
@@ -46,7 +29,43 @@ where command is:
     net - Network (children) status.
 
     jobs - Job status.
-        """
+"""
+
+def gethosts():
+    ''' Get and check hosts in sys.argv '''
+    if len(sys.argv) == 2:
+        hosts = cfg['hosts'].keys()
+    else:
+        hosts = sys.argv[2:]
+
+    for h in hosts:
+        if h not in cfg['hosts']:
+            print("%s not in host configs, exiting..." % h)
+            sys.exit(1)
+
+    return hosts
+
+def postJob(r, source, N, param=None):
+    jobhash = sha.sha(exp).hexdigest()
+
+    for _ in range(N):
+        if param:
+            r.lpush('jobs:new', jobhash+' %s' % str(param))
+            # BLAST! this is unclean...
+        else:
+            r.lpush('jobs:new', jobhash)
+
+    r.hset('jobs:sources', jobhash, zlib.compress(exp))
+
+    if not os.path.exists('.exps'):
+        os.makedirs('.exps')
+    newfile = os.path.join('.exps', jobhash+'.py')
+    if not os.path.exists(newfile):
+        shutil.copy(sys.argv[2], newfile)
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print usage_string
         sys.exit(-1)
 
     sys.path.insert(0,'')
@@ -76,46 +95,22 @@ where command is:
         env['SYSLOG'] = cfg['syslog_server']
         sb.Popen(spec.split(),env=env)
 
-
     elif cmd == 'post':
         r = redis.StrictRedis(cfg['redis_server'])
         exp = open(sys.argv[2],'r').read()
         N = int(sys.argv[3])
 
-        jobhash = sha.sha(exp).hexdigest()
-
-        for _ in range(N):
-            r.lpush('jobs:new', jobhash)
-
-        r.hset('jobs:sources', jobhash, zlib.compress(exp))
-
-        if not os.path.exists('.exps'):
-            os.makedirs('.exps')
-        newfile = os.path.join('.exps', jobhash+'.py')
-        if not os.path.exists(newfile):
-            shutil.copy(sys.argv[2], newfile)
+        postJob(r, exp, N)
 
     elif cmd == 'sweep':
         r = redis.StrictRedis(cfg['redis_server'])
         exp = open(sys.argv[2],'r').read()
         N = int(sys.argv[3])
-        params = map(int, sys.argv[3:]) # TODO or should this be 4:?
+        params = sys.argv[3:] # TODO or should this be 4:?
         assert len(params) > 0, "Need parameter values."
 
-        jobhash = sha.sha(exp).hexdigest()
-
         for p in params:
-            for _ in range(N):
-                r.lpush('jobs:new', jobhash+' %d'%p)
-                # BLAST! this is unclean...
-
-        if not os.path.exists('.exps'):
-            os.makedirs('.exps')
-        newfile = os.path.join('.exps', jobhash+'.py')
-        if not os.path.exists(newfile):
-            shutil.copy(sys.argv[2], newfile)
-        with open('jobhash','a') as fid:
-            fid.write(' '.join(sys.argv))
+            postJob(r, exp, N, p)
 
     elif cmd == 'kill':
         r = redis.StrictRedis(cfg['redis_server'])
@@ -143,6 +138,7 @@ where command is:
             r.delete('workers:stop')
     
     elif cmd == 'jobs':
+        print "test"
         r = redis.StrictRedis(cfg['redis_server'])
         
         if len(sys.argv) == 3:
@@ -153,10 +149,11 @@ where command is:
         new = r.llen('jobs:new') or '0'
         working = r.llen('jobs:working') or '0'
         done = r.get('jobs:numdone') or '0'
+        failed = r.get('jobs:failed') or '0'
 
         if not verbose:
-            print("\t%s jobs pending\n\t%s running\n\t%s completed"%
-                    (new, working, done))
+            print("\t%s jobs pending\n\t%s running\n\t%s completed\n\t%s failed"%
+                    (new, working, done, failed))
         else:
             print("Pending jobs (%s):" % new)
             joblist = r.lrange('jobs:new', 0, -1)
@@ -174,6 +171,8 @@ where command is:
             keys = r.keys('jobs:done:*')
             for k in keys:
                 print('\t%s: %s' % (r.llen(k),k.split(':')[-1][:8]))
+
+            print("\nFailed jobs (%s)" % failed)
 
     elif cmd == 'net':
         r = redis.StrictRedis(cfg['redis_server'])
@@ -197,4 +196,9 @@ where command is:
                 cl = x #js.loads(zlib.decompress(x))
                 print '\t{0:<15} with hb {1:3.1f} seconds ago'\
                     .format(cl, curr_time[0] + (curr_time[1]*1e-6) - int(r.zscore('workers:hb',x)))
+
+    else:
+        print "Command %s is not defined." % cmd
+        print usage_string
+        sys.exit(-1)
 

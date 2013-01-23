@@ -4,6 +4,8 @@ import logging.handlers
 import redis
 import subprocess as sb
 from time import time, sleep
+from Queue import Queue, Empty
+from threading import Thread
 try:
     import simplejson as js
 except:
@@ -21,7 +23,8 @@ except:
 
 unique_id = getHost() + '-' + str(uuid.uuid1())
 
-level = logging.WARNING
+level = logging.WARN
+#level = os.environ.get('LOGLEVEL', logging.WARNING)
 
 h = logging.handlers.SysLogHandler((syslog_server,514))
 h.setLevel(level)
@@ -51,13 +54,32 @@ def spawn(source, modname, param=None):
     env = os.environ.copy()
     if param:
         env['PARAM'] = param
-    env['WORKHASH'] = source
+    if source != 'rebuild':
+        env['WORKHASH'] = source
     env['UNIQ_ID'] = unique_id
-    #syslog_server = os.environ['SYSLOG'] # not needed as already in os.environ
-    #redis_server = os.environ['REDIS']
+    #REDIS not needed as already in os.environ
     env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:lib:build' #TODO
-    spec = 'python -m {}'.format(modname)
-    return sb.Popen(spec.split(), env=env)
+    spec = 'python -um {}'.format(modname)
+    return sb.Popen(spec.split(), env=env, bufsize=1, stdout=sb.PIPE, stderr=sb.PIPE, close_fds=True)
+
+def get_nonblocking_queue(fid):
+    def grab_output(out, queue):
+        for line in iter(out.readline, b''):
+            queue.put(line)
+        out.close()
+    q = Queue()
+    t = Thread(target=grab_output, args=(fid, q))
+    t.daemon = True
+    t.start()
+    return q
+
+def log_output(logger, q):
+    while True:
+        try: line = q.get_nowait()
+        except Empty:
+            break
+        else:
+            logger(line)
 
 def kill(spawn):
     if spawn == None:
@@ -68,7 +90,7 @@ def kill(spawn):
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == 'rebuild':
         logger.info('Beginning dummy run for CDE rebuild')
-        x = spawn('rebuild', 'samcnet.experiment') # TODO
+        x = spawn('rebuild', 'samcnet.rebuild') # TODO
         x.wait()
         sys.exit()
     else:
@@ -107,9 +129,14 @@ if __name__ == '__main__':
                     else:
                         source, env = wsplit
                     # write exp source out at .exps/<workhash>.py
-                    with open('samcnet/'+source+'.py','w') as fid: #TODO
-                        fid.write(zlib.decompress(r.hget('jobs:sources', workhash)))
+                    if not os.path.exists('samcnet/'+source+'.py'):
+                        with open('samcnet/'+source+'.py','w') as fid: #TODO
+                            fid.write(zlib.decompress(r.hget('jobs:sources', source)))
                     child = spawn(source, 'samcnet.'+source, env) #TODO blech...
+
+                    q_stdout = get_nonblocking_queue(child.stdout)
+                    q_stderr = get_nonblocking_queue(child.stderr)
+
                     state = 'working'
 
                 if state == 'working':
@@ -118,15 +145,19 @@ if __name__ == '__main__':
                         sleep(2)
                     elif child.poll() != 0:
                         logger.warning("Child returned error return code %d", child.returncode)
-                        r.lrem('jobs:working', 1, workhash)
+                        r.lrem('jobs:working', 1, source)
+                        r.incr('jobs:failed')
                         state = 'idle'
                     else: # we just finished a job
                         logger.info("Child finished job, going back to idle")
-                        r.lrem('jobs:working', 1, workhash)
+                        r.lrem('jobs:working', 1, source)
                         r.incr('jobs:numdone') 
                         # and the spawn will write the result to
                         # jobs:done:<workhash>
                         state = 'idle'
+                    log_output(logger.info, q_stdout)
+                    log_output(logger.error, q_stderr)
+
             except KeyboardInterrupt:
                 # Exit gracefully
                 logger.info("Received keyboard stop command, shutting down.")
