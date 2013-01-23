@@ -67,6 +67,7 @@ def postJob(r, source, N, param=None):
             r.lpush('jobs:new', jobhash)
 
     r.hset('jobs:sources', jobhash, getSource(r, source))
+    r.hset('jobs:times', jobhash, r.time()[0])
 
     if not os.path.exists('.exps'):
         os.makedirs('.exps')
@@ -269,6 +270,7 @@ if __name__ == '__main__':
         done_keys = [x[10:] for x in r.keys('jobs:done:*')]
         source_keys = r.hkeys('jobs:sources')
         desc_keys = r.hkeys('jobs:descs')
+        time_keys = r.hkeys('jobs:times')
         for k in source_keys:
             if k not in done_keys:
                 print "delete %s source" % k
@@ -277,6 +279,10 @@ if __name__ == '__main__':
             if k not in done_keys:
                 print "delete %s desc" % k
                 r.hdel('jobs:descs', k)
+        for k in time_keys:
+            if k not in done_keys:
+                print "delete %s time" % k
+                r.hdel('jobs:times', k)
 
         r.delete('jobs:failed')
         print("Done!")
