@@ -90,8 +90,7 @@ def kill(spawn):
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == 'rebuild':
         logger.info('Beginning dummy run for CDE rebuild')
-        x = spawn('rebuild', 'samcnet.rebuild') # TODO
-        x.wait()
+        # This is just to 'exercise' CDE
         sys.exit()
     else:
         logger.info('Connecting to db.')

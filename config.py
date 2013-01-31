@@ -19,13 +19,12 @@ class WorkGroup:
 
 ### These two functions will be called before and after every sync, feel free
 ### to modify them.
-def pre_sync():
+def pre_sync(quick=False):
     """Will be performed before every sync"""
     ## User specific code:
     def check_ret(code):
         if code != 0:
             return -1
-    print "Updating CDE package..." 
     os.environ['LD_LIBRARY_PATH']='build:lib'
     os.environ['PYTHONPATH'] = cfg['local_workdir']
     os.environ['REDIS'] = cfg['redis_server']
@@ -38,9 +37,17 @@ def pre_sync():
 
     #p = sb.Popen('/home/bana/bin/cde python -m samcnet.experiment'.split())
     #p.wait()
-    p = sb.Popen('/home/bana/bin/cde python mon.py rebuild'.split())
-    check_ret(p.wait())
-    print " CDE Update Done."
+    if not quick:
+        print "Updating CDE package..." 
+        p = sb.Popen('/home/bana/bin/cde python mon.py rebuild'.split())
+        check_ret(p.wait())
+        p = sb.Popen('/home/bana/bin/cde python -m tests.test_simple.py'.split())
+        check_ret(p.wait())
+        p = sb.Popen('/home/bana/bin/cde python -m tests.test_class.py'.split())
+        check_ret(p.wait())
+        p = sb.Popen('/home/bana/bin/cde python -m tests.test_net.py'.split())
+        check_ret(p.wait())
+        print " CDE Update Done."
     p = sb.Popen('rsync -a samcnet {}{}'.format(cde,workdir).split())
     check_ret(p.wait())
     p = sb.Popen('rsync -a lib {}{}'.format(cde,workdir).split())
@@ -151,9 +158,11 @@ cfg['redis_server'] = "camdi16.tamu.edu"
 cfg['syslog_server'] = "camdi16.tamu.edu"
 cfg['local_workdir'] = os.getcwd()
 #cfg['local_workdir'] = '/home/bana/GSP/research/samc/code'
+cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
+                    'PYTHONPATH':'/home/bana/GSP/research/samc/code'}#os.path.abspath(__file__)}
 
 cfg['hosts'] = {
-        'wsgi'  : SGEGroup('wsgi', './', 200),
+        'wsgi'  : SGEGroup('wsgi', './', 300),
         'local' : Local(cfg['local_workdir']),
         'toxic' : Workstation('toxic', 
             '.',
