@@ -31,6 +31,9 @@ where command is:
         describing the experiment file for easy retrieval 
         in downstream processing.
 
+    source <experiment> - View the source of an experiment 
+        by (partial) hash.
+
     net - Network (children) status.
 
     jobs - Job status.
@@ -63,16 +66,24 @@ def postJob(r, source, N, param=None):
     [param] - for sweep runs
     """
     jobhash = getHash(r, source)
+    githash = sb.check_output('git rev-parse HEAD'.split()).strip()
+    storedgithash = r.hget('jobs:githashes', jobhash)
+    if storedgithash is not None and githash != storedgithash:
+        print('WARNING: This experiment has already been performed under a different version of the code, do you wish to continue?')
+        sel = raw_input('y/[n]: ')
+        if sel.upper() != 'Y':
+            sys.exit(-1)
     for _ in range(N):
         if param:
-            r.lpush('jobs:new', jobhash+' %s' % str(param))
+            r.lpush('jobs:new', jobhash+' '+str(param))
             # BLAST! this is unclean...
         else:
             r.lpush('jobs:new', jobhash)
 
     r.hset('jobs:sources', jobhash, getSource(r, source))
     r.hset('jobs:times', jobhash, r.time()[0])
-    print "Posted; hash: %s" % jobhash[:8]
+    r.hset('jobs:githashes', jobhash, githash)
+    print "Posted hash: %s under gitcode %s" % (jobhash[:8], githash[:8])
 
     if not os.path.exists('.exps'):
         os.makedirs('.exps')
@@ -141,8 +152,7 @@ if __name__ == '__main__':
 
     if cmd == 'sync' or cmd == 'qsync':
         quick = cmd.startswith('q')
-        if config.pre_sync(quick) != 0:
-            sys.exit('Non-zero exit code on config.py:pre_sync()')
+        config.pre_sync(quick)
         hosts = gethosts()
         for h in hosts:
             cfg['hosts'][h].sync()
@@ -167,8 +177,12 @@ if __name__ == '__main__':
         env.update(cfg['env_vars'])
         if len(sys.argv) == 4: 
             descJob(r, jobhash, sys.argv[3])
-        p = sb.Popen(spec.split(),env=env)
-        p.wait()
+        r.lpush('jobs:working', jobhash)
+        try:
+            p = sb.Popen(spec.split(),env=env)
+            p.wait()
+        finally:
+            r.lrem('jobs:working', 1, jobhash)
 
     elif cmd == 'post':
         r = redis.StrictRedis(cfg['redis_server'])
@@ -186,6 +200,11 @@ if __name__ == '__main__':
 
         assert len(sys.argv) == 4, usage_string
         descJob(r, exp, sys.argv[3])
+
+    elif cmd == 'source':
+        r = redis.StrictRedis(cfg['redis_server'])
+        jobhash = getHash(r, sys.argv[2])
+        sb.call('cat .exps/%s.py' % jobhash, shell=True)
 
     elif cmd == 'sweep':
         r = redis.StrictRedis(cfg['redis_server'])
@@ -253,7 +272,7 @@ if __name__ == '__main__':
 
             print("\nDone jobs (%s):" % done)
             keys = r.keys('jobs:done:*')
-            for k in keys:
+            for k in sorted(keys):
                 print('\t%4s: %s' % (r.llen(k),k.split(':')[-1][:8]))
 
             print("\nFailed jobs (%s)" % failed)
@@ -318,22 +337,20 @@ if __name__ == '__main__':
     elif cmd == 'gc':
         r = redis.StrictRedis(cfg['redis_server'])
 
-        done_keys = [x[10:] for x in r.keys('jobs:done:*')]
-        source_keys = r.hkeys('jobs:sources')
-        desc_keys = r.hkeys('jobs:descs')
-        time_keys = r.hkeys('jobs:times')
-        for k in source_keys:
-            if k not in done_keys:
-                print "delete %s source" % k
-                r.hdel('jobs:sources', k)
-        for k in desc_keys:
-            if k not in done_keys:
-                print "delete %s desc" % k
-                r.hdel('jobs:descs', k)
-        for k in time_keys:
-            if k not in done_keys:
-                print "delete %s time" % k
-                r.hdel('jobs:times', k)
+        done_keys = set([x[10:] for x in r.keys('jobs:done:*')]) | \
+                set([x for x in r.lrange('jobs:working', 0, -1)])
+
+        # (name, Redis key, set)
+        pools = [   ('source', 'jobs:sources', set(r.hkeys('jobs:sources'))),
+                    ('description', 'jobs:descs', set(r.hkeys('jobs:descs'))),
+                    ('time', 'jobs:times', set(r.hkeys('jobs:times'))),
+                    ('githashe', 'jobs:githashes', set(r.hkeys('jobs:githashes'))),
+                    ('ground', 'jobs:grounds', set(r.hkeys('jobs:grounds')))]
+
+        for name,rediskey,pool in pools:
+            for jobhash in pool - done_keys:
+                print "delete %s %s" % (jobhash, name)
+                r.hdel(rediskey, jobhash)
 
         r.delete('jobs:failed')
 

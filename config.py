@@ -22,9 +22,6 @@ class WorkGroup:
 def pre_sync(quick=False):
     """Will be performed before every sync"""
     ## User specific code:
-    def check_ret(code):
-        if code != 0:
-            return -1
     os.environ['LD_LIBRARY_PATH']='build:lib'
     os.environ['PYTHONPATH'] = cfg['local_workdir']
     os.environ['REDIS'] = cfg['redis_server']
@@ -35,31 +32,20 @@ def pre_sync(quick=False):
     workdir = cfg['local_workdir']
     assert workdir == '/home/bana/GSP/research/samc/code'
 
-    #p = sb.Popen('/home/bana/bin/cde python -m samcnet.experiment'.split())
-    #p.wait()
     if not quick:
         print "Updating CDE package..." 
-        p = sb.Popen('/home/bana/bin/cde python mon.py rebuild'.split())
-        check_ret(p.wait())
-        p = sb.Popen('/home/bana/bin/cde python -m tests.test_simple.py'.split())
-        check_ret(p.wait())
-        p = sb.Popen('/home/bana/bin/cde python -m tests.test_class.py'.split())
-        check_ret(p.wait())
-        p = sb.Popen('/home/bana/bin/cde python -m tests.test_net.py'.split())
-        check_ret(p.wait())
+        #sb.check_call('/home/bana/bin/cde python mon.py rebuild'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_simple'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
+        sb.check_call('/home/bana/bin/cde python -m tests.test_tree'.split())
         print " CDE Update Done."
-    p = sb.Popen('rsync -a samcnet {}{}'.format(cde,workdir).split())
-    check_ret(p.wait())
-    p = sb.Popen('rsync -a lib {}{}'.format(cde,workdir).split())
-    check_ret(p.wait())
-    p = sb.Popen('rsync -a build {}{}'.format(cde,workdir).split())
-    check_ret(p.wait())
-    p = sb.Popen('rsync -aH mon.py {}{}'.format(cde,workdir).split())
-    check_ret(p.wait())
-    p = sb.Popen('rsync -aH config.py {}{}'.format(cde,workdir).split())
-    check_ret(p.wait())
+    sb.check_call('rsync -a samcnet {}{}'.format(cde,workdir).split())
+    sb.check_call('rsync -a lib {}{}'.format(cde,workdir).split())
+    sb.check_call('rsync -a build {}{}'.format(cde,workdir).split())
+    sb.check_call('rsync -aH mon.py {}{}'.format(cde,workdir).split())
+    sb.check_call('rsync -aH config.py {}{}'.format(cde,workdir).split())
     print " CDE rsyncs Done."
-    return 0
 
 def post_sync():
     """Will be performed after every sync"""
@@ -137,7 +123,7 @@ class SGEGroup(WorkGroup):
 
     def launch_workers(self):
         #qsub -N test -t 1:100 -j y samcjob.sh
-        p = sb.Popen('ssh {0} qsub -N dmon -e logs -o logs -t 1:{1} -j y samcjob.sh'.format(
+        p = sb.Popen('ssh {0} qsub -q normal.q -N dmon -e logs -o logs -t 1:{1} -j y samcjob.sh'.format(
             self.sshname, self.cores).split())
         ret = p.wait()
         if ret != "0":
