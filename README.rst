@@ -21,29 +21,30 @@ Redis Schema
 
 The Redis schema we are using for this is:
 
-jobs:new,jobs:working,
-    Lists of job source hashes.
+jobs:new,jobs:working
+    List: <jobhash>|<json params object>
 
 jobs:numdone
-    The number of done jobs.
+    Int: The number of done jobs.
 
-jobs:done:{hash}
-    The list containing the completed job results. For sweep jobs the hash will 
-    be {hash}-{p} where p was the parameter for that run.
+jobs:done:<hash>:params
+    List: Contains all json params objects for this job.
+
+jobs:done:<hash>:<json params>
+    List: The list containing the completed job results. For sweep jobs the 
+    hash will be {hash}-{p} where p was the parameter for that run.
 
 jobs:sources
-    A hashmap from job hash to gzipped source text.
+    Hashmap: A hashmap from job hash to gzipped source text.
 
-jobs:envs
-    A hashmap from environment hashes to gzipped JSON environments.
-
-jobs:sweepconfigs
-    A hashmap from a job hash to a string of space separated values that the 
-    sweep was run with.
+jobs:githashes,jobs:ground,jobs:time
+    Hashmaps: A hashmap from job hash to: the githash of the superproject that 
+    the job was posted under; the zlib compressed pickle of the ground truth 
+    object; and the unix epoch time that the job was first submitted.
 
 workers:hbs
-    A sorted hashmap of heartbeat times to json encoded info about the child.  
-    (See next section)
+    Sorted Hashmap (heap): heartbeat times to json encoded info about the 
+    child.  (See next section)
 
 workers:stop
     A key to indicate that the workers should stop.

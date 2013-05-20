@@ -6,6 +6,7 @@ import subprocess as sb
 from time import time, sleep
 from Queue import Queue, Empty
 from threading import Thread
+import redisbackend 
 try:
     import simplejson as js
 except:
@@ -16,9 +17,9 @@ def getHost():
 
 try:
     syslog_server = os.environ['SYSLOG']
-    redis_server = os.environ['REDIS']
+    db_server = os.environ['DB_LOC']
 except:
-    print "ERROR: Need SYSLOG and REDIS environment variables defined."
+    print "ERROR: Need SYSLOG and DB_LOC environment variables defined."
     sys.exit(1)
 
 unique_id = getHost() + '-' + str(uuid.uuid1())
@@ -57,7 +58,7 @@ def spawn(source, modname, param=None):
     if source != 'rebuild':
         env['WORKHASH'] = source
     env['UNIQ_ID'] = unique_id
-    #REDIS not needed as already in os.environ
+    #DB_LOC not needed as already in os.environ
     env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:lib:build' #TODO
     spec = 'python -um {}'.format(modname)
     return sb.Popen(spec.split(), env=env, bufsize=1, stdout=sb.PIPE, stderr=sb.PIPE, close_fds=True)
@@ -94,7 +95,7 @@ if __name__ == '__main__':
         sys.exit()
     else:
         logger.info('Connecting to db.')
-        r = redis.StrictRedis(redis_server)
+        db = redisbackend.RedisDataStore(db_server)
         atexit.register(recordDeath)
         child = None
         workhash = None
