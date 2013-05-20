@@ -4,8 +4,7 @@ import subprocess as sb
 import redis
 import simplejson as js
 from collections import Counter
-import redisbackend as rb
-#import mon
+import jobmon.redisbackend as rb
 
 usage_string = """Usage: jm command [args]
 where command is:
@@ -106,7 +105,7 @@ if __name__ == '__main__':
 
     elif cmd == 'source':
         jobhash = db.select_jobfile()
-        print db.get_jobfile(jobhash)
+        print zlib.decompress(db.get_jobfile(jobhash))
 
     elif cmd == 'kill':
         # Right now we kill everything

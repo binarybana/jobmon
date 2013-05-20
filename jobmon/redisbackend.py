@@ -32,7 +32,7 @@ class RedisDataStore:
             else:
                 r.lpush('jobs:new', jobhash)
 
-        r.hset('jobs:sources', jobhash, get_jobfile(r, source))
+        r.hset('jobs:sources', jobhash, self.get_jobfile(source))
         r.hset('jobs:times', jobhash, r.time()[0])
         r.hset('jobs:githashes', jobhash, githash)
         print "Posted hash: %s under gitcode %s" % (jobhash[:8], githash[:8])
@@ -42,7 +42,7 @@ class RedisDataStore:
         newfile = os.path.join('.exps', jobhash+'.py')
         if not os.path.exists(newfile):
             with open(newfile,'w') as fid:
-                fid.write(zlib.decompress(get_jobfile(r, source)))
+                fid.write(zlib.decompress(self.get_jobfile(source)))
         return jobhash
 
     def describe_jobfile(source, desc):
@@ -66,7 +66,7 @@ class RedisDataStore:
 
         r.hset('jobs:descs', jobhash, desc)
 
-    def get_jobfile(val):
+    def get_jobfile(self, val):
         """ Returns compressed source from file path or (partial) hash"""
         r = self.conn
         if val.endswith('.py'):
@@ -80,8 +80,9 @@ class RedisDataStore:
                 return r.hget('jobs:sources', h)
         sys.exit('Could not find valid source that began with hash %s' % val)
 
-    def get_jobhash(r, val):
+    def get_jobhash(self, val):
         """ Returns hash from file path or (partial) hash"""
+        r = self.conn
         if val.endswith('.py'):
             with open(val,'r') as fid:
                 return sha.sha(fid.read()).hexdigest()
@@ -174,7 +175,10 @@ class RedisDataStore:
                 print '\t{0:<15} with hb {1:3.1f} seconds ago'\
                     .format(cl, curr_time[0] + (curr_time[1]*1e-6) - int(r.zscore('workers:hb',x)))
 
-    def clean_jobfiles(self):
+    def select_jobfile(self):
+        return self.select_jobfiles()[0]
+
+    def select_jobfiles(self):
         r = self.conn
         done_hashes = sorted(r.keys('jobs:done:*'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
 
@@ -183,7 +187,7 @@ class RedisDataStore:
             num = r.llen(d)
             print "%4d. (%3s) %s %s" % (i, num, d[10:15], desc)
 
-        sel = raw_input("Choose a dataset or range of datasets to delete or 'q' to exit: ")
+        sel = raw_input("Choose a dataset or range of datasets or 'q' to exit: ")
         sel = [x.strip() for x in sel.split('-')]
         if len(sel) == 1:
             if not sel[0].isdigit() or int(sel[0]) not in range(i+1):
@@ -191,15 +195,21 @@ class RedisDataStore:
             a = b = int(sel[0])
         else:
             a,b = int(sel[0]), int(sel[1])
-        
+
+        return [done_hashes[i][10:] for i in range(a,b+1)]
+
+    def clean_jobfiles(self):
+        r = self.conn
+        done_hashes = sorted(r.keys('jobs:done:*'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
+        jobs = self.select_jobfiles()
         print "Deleting:"
-        for i in range(a,b+1):
+        for i in jobs:
             k = done_hashes[i][10:]
             print "Will delete experiment %d: %s %s" % (i, k[:5], (r.hget('jobs:descs',k) or ''))
 
         sel = raw_input("Are you sure [Y/N]? ")
         if sel.upper().strip() == 'Y':
-            for i in range(a,b+1):
+            for i in jobs:
                 k = done_hashes[i][10:]
                 print "Deleting experiment %d: %s" % (i, k[:5])
                 r.hdel('jobs:sources', k)
