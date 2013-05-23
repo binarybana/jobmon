@@ -17,35 +17,35 @@ class WorkGroup:
     def kill_workers(self):
         pass
 
-### These two functions will be called before and after every sync, feel free
-### to modify them.
+### These two functions will be called before and after every sync
 def pre_sync(quick=False):
     """Will be performed before every sync"""
     ## User specific code:
     os.environ['LD_LIBRARY_PATH']='build:lib'
     os.environ['PYTHONPATH'] = cfg['local_workdir']
-    os.environ['REDIS'] = cfg['redis_server']
+    os.environ['DB'] = cfg['db_server']
     os.environ['SYSLOG'] = cfg['syslog_server']
+    workdir = cfg['local_workdir']
+
+    jobmondir = os.path.dirname(os.path.realpath(__file__))
+    
     os.chdir(cfg['local_workdir'])
 
     cde = 'cde-package/cde-root'
-    workdir = cfg['local_workdir']
-    assert workdir == '/home/bana/GSP/research/samc/code'
 
     if not quick:
         print "Updating CDE package..." 
         #sb.check_call('/home/bana/bin/cde python mon.py rebuild'.split())
         #sb.check_call('/home/bana/bin/cde python -m tests.test_simple'.split())
         #sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
-        sb.check_call('/home/bana/bin/cde python -m tests.test_tree'.split())
-        print " CDE Update Done."
+        sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_tree'.split())
+        print "CDE Update Done."
     sb.check_call('rsync -a samcnet {}{}'.format(cde,workdir).split())
-    sb.check_call('rsync -a lib {}{}'.format(cde,workdir).split())
     sb.check_call('rsync -a build {}{}'.format(cde,workdir).split())
-    sb.check_call('rsync -aH mon.py {}{}'.format(cde,workdir).split())
-    sb.check_call('rsync -aH config.py {}{}'.format(cde,workdir).split())
-    print " CDE rsyncs Done."
+    sb.check_call('rsync -aH {}/ {}{}'.format(jobmondir,cde,jobmondir).split())
+    #sb.check_call('rsync -aH config.py {}{}'.format(cde,workdir).split())
+    print "CDE rsyncs Done."
 
 def post_sync():
     """Will be performed after every sync"""
@@ -81,7 +81,8 @@ class Workstation(WorkGroup):
 
     def sync(self):
         print("Rsyncing to %s" % self.sshname)
-        p = sb.Popen('rsync -aH cde-package {}:{}'.format(self.sshname,self.syncdir).split())
+        p = sb.Popen('rsync -aH cde-package {}:{}'.format(
+            self.sshname,self.syncdir).split())
         p.wait()
         print("Rsync done.")
 
@@ -113,8 +114,10 @@ class SGEGroup(WorkGroup):
 
     def sync(self):
         print ("Beginning rsync to %s... " % self.sshname)
-        print ("... rsync %s/cde-package -> %s:%s" % (cfg['local_workdir'], self.sshname, self.workdir))
-        p = sb.Popen('rsync -acz {0}/cde-package {1}:{2}'.format(cfg['local_workdir'], self.sshname, self.workdir).split())
+        print ("... rsync %s/cde-package -> %s:%s" % 
+                (cfg['local_workdir'], self.sshname, self.workdir))
+        p = sb.Popen('rsync -acz {0}/cde-package {1}:{2}'.format(
+            cfg['local_workdir'], self.sshname, self.workdir).split())
         ret = p.wait()
         if ret != "0":
             print("Success!")
@@ -138,21 +141,20 @@ class SGEGroup(WorkGroup):
         #spec = 'ssh {0.hostname} killall -q -u {1} python; killall -q -u {1} python2.7; killall -q -u {1} cde-exec; killall -q -u {1} sshd'.format(host, user)
         #sb.Popen(shlex.split(spec))
 
-### Define local redis server, local root, sync groups and servers ###
+### Define Configuration ###
 cfg = {}
-cfg['redis_server'] = "camdi16.tamu.edu"
+cfg['db_server'] = "nfsc-nas.tamu.edu"
 cfg['syslog_server'] = "camdi16.tamu.edu"
-cfg['local_workdir'] = os.getcwd()
-#cfg['local_workdir'] = '/home/bana/GSP/research/samc/code'
-cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
-                    'PYTHONPATH':'/home/bana/GSP/research/samc/code'}#os.path.abspath(__file__)}
-
+cfg['local_workdir'] = os.path.expanduser('~/AeroFS/GSP/research/samc/samcnet'
 cfg['hosts'] = {
-        'wsgi'  : SGEGroup('wsgi', './', 300),
+        'wsgi'  : SGEGroup('wsgi', './', 90),
         'local' : Local(cfg['local_workdir']),
-        'toxic' : Workstation('toxic', 
-            '.',
-            'cde-package/cde-root/home/bana/GSP/research/samc/code',
-            './python.cde',
-            1)
+        #'toxic' : Workstation('toxic', 
+            #'.',
+            #'cde-package/cde-root/home/bana/AeroFS/GSP/research/samc/samcnet',
+            #'./python.cde',
+            #1)
         }
+#cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
+                    #'PYTHONPATH':'/home/bana/AeroFS/GSP/research/samc/samcnet'}#os.path.abspath(__file__)}
+

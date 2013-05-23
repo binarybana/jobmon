@@ -59,12 +59,12 @@ if __name__ == '__main__':
         sys.exit(-1)
 
     sys.path.insert(0,'')
-    import config
-    from config import cfg
+    from jobmon import config 
+    from jobmon.config import cfg
     # ^^Get locally defined config
     cmd = sys.argv[1]
 
-    db = rb.RedisDataStore(cfg['db_url'])
+    db = rb.RedisDataStore(cfg['db_server'])
 
     if cmd == 'sync' or cmd == 'qsync':
         quick = cmd.startswith('q')
