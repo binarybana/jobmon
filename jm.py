@@ -89,14 +89,14 @@ if __name__ == '__main__':
         jobhash = db.post_jobfile(loc, desc)
 
         if len(sys.argv) > 4: # Go ahead and post the empty experiment
-            N = int(sys.argv[3])
+            N = int(sys.argv[4])
             db.post_experiment(jobhash, N, '{}')
 
     elif cmd == 'postexp':
         jobhash = db.select_jobfile()
         params = raw_input("Enter job params (json/yaml): ")
         N = int(raw_input("N: "))
-        db.jost_experiment(jobhash, N, params)
+        db.post_experiment(jobhash, N, params)
 
     elif cmd == 'describe':
         jobhash = db.select_jobfile()
@@ -123,6 +123,56 @@ if __name__ == '__main__':
     elif cmd == 'gc':
         db.gc()
 
+    elif cmd == 'spawn':
+        # Roughly from: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
+        import os, atexit
+        pidfile = "/tmp/jobmon_daemon.pid"
+        if os.path.exists(pidfile):
+            print("Daemon already running at pid %d." % int(open(pidfile).read()))
+            sys.exit()
+        pid = os.fork()
+        if pid > 0:
+            sys.exit() #exit first parent
+        os.chdir("/tmp")
+        os.setsid()
+        os.umask(0)
+        pid = os.fork()
+        if pid > 0:
+            sys.exit()
+        def delpid(x):
+            if os.path.exists(pidfile):
+                os.remove(pidfile)
+        atexit.register(delpid)
+        open(pidfile,'w').write("%s\n" % str(os.getpid()))
+
+        import zmq
+        import time
+
+        ctx = zmq.Context()
+        socket = ctx.socket(zmq.PULL)
+        socket.bind('tcp://*:7000')
+        try:
+            while True:
+                name,data = socket.recv_multipart()
+                # FIXME This needs to write in the right folder
+                with open('/tmp/%s'%name,'w') as fid:
+                    fid.write(data)
+        except:
+            ctx.term()
+            delpid(None)
+
+    elif cmd == 'killspawn':
+        import os
+        from signal import SIGTERM
+
+        pidfile = "/tmp/jobmon_daemon.pid"
+
+        if not os.path.exists(pidfile):
+            print("Daemon not running?")
+            sys.exit()
+        pid = int(open(pidfile).read())
+        os.kill(pid, SIGTERM)
+        os.remove(pidfile)
     else:
         print "Command %s is not defined." % cmd
         print usage_string

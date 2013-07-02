@@ -143,12 +143,12 @@ class SGEGroup(WorkGroup):
 
 ### Define Configuration ###
 cfg = {}
-cfg['db_server'] = "nfsc-nas.tamu.edu"
+cfg['db_server'] = "camdi16.tamu.edu"
 cfg['syslog_server'] = "camdi16.tamu.edu"
-cfg['local_workdir'] = os.path.expanduser('~/AeroFS/GSP/research/samc/samcnet'
+cfg['local_workdir'] = os.path.expanduser('~/GSP/research/samc/samcnet')
 cfg['hosts'] = {
         'wsgi'  : SGEGroup('wsgi', './', 90),
-        'local' : Local(cfg['local_workdir']),
+        'local' : Local(cfg['local_workdir'])
         #'toxic' : Workstation('toxic', 
             #'.',
             #'cde-package/cde-root/home/bana/AeroFS/GSP/research/samc/samcnet',

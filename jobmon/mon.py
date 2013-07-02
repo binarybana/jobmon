@@ -12,22 +12,31 @@ try:
 except:
     import json as js
 
-def getHost():
-    return os.uname()[1].split('.')[0]
+try:
+    server = os.environ['SERVER']
+except:
+    print "ERROR: Need the SERVER environment variable defined."
+    sys.exit(1)
+
+if 'PYTHONPATH' not in os.environ:
+    print "ERROR: Must have PYTHONPATH defined."
+    sys.exit(1)
 
 try:
-    syslog_server = os.environ['SYSLOG']
-    db_server = os.environ['DB_LOC']
+    import redisbackend as rb
 except:
-    print "ERROR: Need SYSLOG and DB_LOC environment variables defined."
+    print "ERROR: Must have PYTHONPATH include Jobmon package."
     sys.exit(1)
+
+def getHost():
+    return os.uname()[1].split('.')[0]
 
 unique_id = getHost() + '-' + str(uuid.uuid1())
 
 level = logging.WARN
 #level = os.environ.get('LOGLEVEL', logging.WARNING)
 
-h = logging.handlers.SysLogHandler((syslog_server,514))
+h = logging.handlers.SysLogHandler((server,514))
 h.setLevel(level)
 formatter = logging.Formatter('%(name)s: samc %(levelname)s %(message)s')
 h.setFormatter(formatter)
@@ -48,8 +57,13 @@ def log_uncaught_exceptions(ex_cls, ex, tb):
 sys.excepthook = log_uncaught_exceptions
 
 def recordDeath():
-    if r is not None:
-        r.zrem('workers:hb', unique_id)
+    if db is not None:
+        db.remove_heartbeat(unique_id)
+        try:
+            db.reload_working_job(workhash)
+            db.job_fail()
+        except:
+            pass
 
 def spawn(source, modname, param=None):
     env = os.environ.copy()
@@ -59,7 +73,7 @@ def spawn(source, modname, param=None):
         env['WORKHASH'] = source
     env['UNIQ_ID'] = unique_id
     #DB_LOC not needed as already in os.environ
-    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:lib:build' #TODO
+    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build' #TODO
     spec = 'python -um {}'.format(modname)
     return sb.Popen(spec.split(), env=env, bufsize=1, stdout=sb.PIPE, stderr=sb.PIPE, close_fds=True)
 
@@ -95,29 +109,34 @@ if __name__ == '__main__':
         sys.exit()
     else:
         logger.info('Connecting to db.')
-        db = redisbackend.RedisDataStore(db_server)
+        db = rb.RedisDataStore(server)
         atexit.register(recordDeath)
         child = None
         workhash = None
         source = None
         env = None
         state = 'idle'
+        try:
+            os.makedirs('exps') # Is there a better way to mkdir -p?
+        except:
+            pass
+        fid = open('exps/__init__.py','w')
+        fid.close()
 
         while True:
             try:
-                r.zadd('workers:hb', r.time()[0], unique_id)
-                cmd = r.get('workers:stop')
-                if cmd == 'ALL' or cmd == getHost():
+                db.push_heartbeat(unique_id)
+                if db.query_stop(getHost()):
                     logger.info("Received stop command, shutting down.")
                     if child and child.poll() == None:
                         child.kill()
-                        r.lrem('jobs:working', 1, source)
-                    r.zrem('workers:hb', unique_id)
+                        db.remove_working_job(source)
+                    db.remove_heartbeat(unique_id)
                     break
 
                 if state == 'idle':
                     #child is free
-                    workhash = r.rpoplpush('jobs:new', 'jobs:working')
+                    workhash = db.poll_work()
                     if workhash is None: # no work
                         logger.info('Child free.')
                         sleep(2)
@@ -126,16 +145,13 @@ if __name__ == '__main__':
 
                 if state == 'spawn':
                     logger.info('Spawning a new child')
-                    wsplit = workhash.split()
-                    if len(wsplit) == 1:
-                        source, env = workhash, None
-                    else:
-                        source, env = wsplit
+                    wsplit = workhash.split('|')
+                    source, env = wsplit
                     # write exp source out at .exps/<source>.py
-                    if not os.path.exists('samcnet/'+source+'.py'):
-                        with open('samcnet/'+source+'.py','w') as fid: #TODO
-                            fid.write(zlib.decompress(r.hget('jobs:sources', source)))
-                    child = spawn(source, 'samcnet.'+source, env) #TODO blech...
+                    if not os.path.exists('exps/'+source+'.py'):
+                        with open('exps/'+source+'.py','w') as fid: 
+                            fid.write(zlib.decompress(db.get_jobfile(source)))
+                    child = spawn(source, 'exps.'+source, env)
 
                     q_stdout = get_nonblocking_queue(child.stdout)
                     q_stderr = get_nonblocking_queue(child.stderr)
@@ -148,15 +164,13 @@ if __name__ == '__main__':
                         sleep(2)
                     elif child.poll() != 0:
                         logger.warning("Child returned error return code %d", child.returncode)
-                        r.lrem('jobs:working', 1, source)
-                        r.incr('jobs:failed')
+                        db.remove_working_job(workhash)
+                        db.job_fail()
                         state = 'idle'
                     else: # we just finished a job
                         logger.info("Child finished job, going back to idle")
-                        r.lrem('jobs:working', 1, source)
-                        r.incr('jobs:numdone') 
-                        # and the spawn will write the result to
-                        # jobs:done:<source>
+                        db.remove_working_job(workhash)
+                        db.job_succeed()
                         state = 'idle'
                     log_output(logger.info, q_stdout)
                     log_output(logger.error, q_stderr)
@@ -166,6 +180,6 @@ if __name__ == '__main__':
                 logger.info("Received keyboard stop command, shutting down.")
                 if child and child.poll() == None:
                     child.kill()
-                r.zrem('workers:hb', unique_id)
+                recordDeath()
                 sys.exit(0)
 

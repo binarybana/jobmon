@@ -8,51 +8,65 @@ class RedisDataStore:
     def __init__(self, loc):
         self.conn = redis.StrictRedis(loc)
 
-    def post_jobfile(source, N, param=None):
-        """ Posts job in jobs:sources:<hash>
-        And pushes requests to jobs:new
-        Needs r: redis object
-        source: path to source or [partial] existing hash
+    def post_experiment(self, jobhash, N, params):
+        """
+        Sets (in order) the:
+            jobs:githashes
+            params:sources
+            experiments:times
+        then adds experiments to jobs:new
         N: number of repeats requested
-        [param] - for sweep runs
+        params: JSON param string
         """
         r = self.conn
-        jobhash = get_jobhash(r, source)
+        self.check_githash(jobhash)
+        if params == "" or params == None:
+            params = '{}'
+        cleanedparams = js.dumps(js.loads(params))
+        paramhash = self.hash(cleanedparams)
+        exp = jobhash + '|' + paramhash
+        r.hset('params:sources', paramhash, cleanedparams)
+        r.hset('experiments:times', exp, r.time()[0])
+        r.lpush('jobs:new', *([exp]*N))
+
+    def check_githash(self, jobhash):
+        r = self.conn
         githash = sb.check_output('git rev-parse HEAD'.split()).strip()
         storedgithash = r.hget('jobs:githashes', jobhash)
         if storedgithash is not None and githash != storedgithash:
-            print('WARNING: This experiment has already been performed under a different version of the code, do you wish to continue?')
-            sel = raw_input('y/[n]: ')
-            if sel.upper() != 'Y':
-                sys.exit(-1)
-        for _ in range(N):
-            if param:
-                r.lpush('jobs:new', jobhash+' '+str(param))
-                # BLAST! this is unclean...
-            else:
-                r.lpush('jobs:new', jobhash)
-
-        r.hset('jobs:sources', jobhash, self.get_jobfile(source))
-        r.hset('jobs:times', jobhash, r.time()[0])
+            print('WARNING: This jobfile has already been run '+\
+                'under a different version of the code.')
+            githash = githash + ' + ' + storedgithash
         r.hset('jobs:githashes', jobhash, githash)
-        print "Posted hash: %s under gitcode %s" % (jobhash[:8], githash[:8])
 
-        if not os.path.exists('.exps'):
-            os.makedirs('.exps')
-        newfile = os.path.join('.exps', jobhash+'.py')
-        if not os.path.exists(newfile):
-            with open(newfile,'w') as fid:
-                fid.write(zlib.decompress(self.get_jobfile(source)))
+    def post_jobfile(self, source, desc):
+        """ 
+        Posts job in jobs:sources 
+        source: path to source or [partial] existing hash
+        desc: string description saved to jobs:descs 
+        """
+        r = self.conn
+        jobhash = self.get_jobhash(source)
+        r.hset('jobs:sources', jobhash, self.get_jobfile(source))
+        r.hset('jobs:descs', jobhash, desc)
+        r.hset('jobs:times', jobhash, r.time()[0])
+        print "Posted hash: %s" % jobhash[:8]
+        #if not os.path.exists('.exps'):
+            #os.makedirs('.exps')
+        #newfile = os.path.join('.exps', jobhash+'.py')
+        #if not os.path.exists(newfile):
+            #with open(newfile,'w') as fid:
+                #fid.write(zlib.decompress(self.get_jobfile(source)))
         return jobhash
 
-    def describe_jobfile(source, desc):
+    def describe_jobfile(self, source, desc):
         """ Describes job in jobs:descs:<hash>
         Needs r: redis object
         source: path to source or [partial] existing hash
         desc: short textual description.
         """
         r = self.conn
-        jobhash = get_jobhash(r, source)
+        jobhash = self.get_jobhash(source)
         if r.hexists('jobs:descs', jobhash):
             old_desc = r.hget('jobs:descs', jobhash)
             if desc != old_desc:
@@ -85,7 +99,7 @@ class RedisDataStore:
         r = self.conn
         if val.endswith('.py'):
             with open(val,'r') as fid:
-                return sha.sha(fid.read()).hexdigest()
+                return self.hash(fid.read())
         if len(val) == sha.digest_size:
             return val
 
@@ -93,6 +107,9 @@ class RedisDataStore:
             if h.startswith(val):
                 return h
         sys.exit('Could not find valid hash that began with hash %s' % val)
+
+    def hash(self, data):
+        return sha.sha(data).hexdigest()
 
     def kill_workers(self):
         r = self.conn
@@ -145,13 +162,12 @@ class RedisDataStore:
             for h,count in jobcounts.iteritems():
                 print('\t%4d: %s' % (count, h[:8]))
 
-            print("\nDone jobs (%s):" % done)
-            keys = r.keys('jobs:done:*')
-            for k in sorted(keys):
-                print('\t%4s: %s' % (r.llen(k),k.split(':')[-1][:8]))
+            print("\nDone jobs (%s)" % done)
+            #keys = r.keys('jobs:done:*')
+            #for k in sorted(keys):
+                #print('\t%4s: %s' % (r.llen(k),k.split(':')[-1][:8]))
 
             print("\nFailed jobs (%s)" % failed)
-
 
     def worker_status(self, argv):
         r = self.conn
@@ -180,12 +196,11 @@ class RedisDataStore:
 
     def select_jobfiles(self):
         r = self.conn
-        done_hashes = sorted(r.keys('jobs:done:*'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
+        hashes = sorted(r.hkeys('jobs:sources'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
 
-        for i, d in enumerate(done_hashes):
-            desc = r.hget('jobs:descs', d[10:]) or ''
-            num = r.llen(d)
-            print "%4d. (%3s) %s %s" % (i, num, d[10:15], desc)
+        for i, d in enumerate(hashes):
+            desc = r.hget('jobs:descs', d) or ''
+            print "%4d. %s %s" % (i, d[:5], desc)
 
         sel = raw_input("Choose a dataset or range of datasets or 'q' to exit: ")
         sel = [x.strip() for x in sel.split('-')]
@@ -196,45 +211,42 @@ class RedisDataStore:
         else:
             a,b = int(sel[0]), int(sel[1])
 
-        return [done_hashes[i][10:] for i in range(a,b+1)]
+        return [hashes[i] for i in range(a,b+1)]
 
     def clean_jobfiles(self):
-        r = self.conn
-        done_hashes = sorted(r.keys('jobs:done:*'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
-        jobs = self.select_jobfiles()
-        print "Deleting:"
-        for i in jobs:
-            k = done_hashes[i][10:]
-            print "Will delete experiment %d: %s %s" % (i, k[:5], (r.hget('jobs:descs',k) or ''))
+        pass
+        #r = self.conn
+        #done_hashes = sorted(r.keys('jobs:done:*'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
+        #jobs = self.select_jobfiles()
+        #print "Deleting:"
+        #for i in jobs:
+            #k = done_hashes[i][10:]
+            #print "Will delete experiment %d: %s %s" % (i, k[:5], (r.hget('jobs:descs',k) or ''))
 
-        sel = raw_input("Are you sure [Y/N]? ")
-        if sel.upper().strip() == 'Y':
-            for i in jobs:
-                k = done_hashes[i][10:]
-                print "Deleting experiment %d: %s" % (i, k[:5])
-                r.hdel('jobs:sources', k)
-                r.hdel('jobs:descs', k)
-                r.hdel('jobs:times', k)
-                r.delete('jobs:done:'+k)
+        #sel = raw_input("Are you sure [Y/N]? ")
+        #if sel.upper().strip() == 'Y':
+            #for i in jobs:
+                #k = done_hashes[i][10:]
+                #print "Deleting experiment %d: %s" % (i, k[:5])
+                #r.hdel('jobs:sources', k)
+                #r.hdel('jobs:descs', k)
+                #r.hdel('jobs:times', k)
+                #r.delete('jobs:done:'+k)
 
     def gc(self):
         r = self.conn
-
-        done_keys = set([x[10:] for x in r.keys('jobs:done:*')]) | \
-                set([x for x in r.lrange('jobs:working', 0, -1)])
-
-        # (name, Redis key, set)
-        pools = [   ('source', 'jobs:sources', set(r.hkeys('jobs:sources'))),
-                    ('description', 'jobs:descs', set(r.hkeys('jobs:descs'))),
-                    ('time', 'jobs:times', set(r.hkeys('jobs:times'))),
-                    ('githashe', 'jobs:githashes', set(r.hkeys('jobs:githashes'))),
-                    ('ground', 'jobs:grounds', set(r.hkeys('jobs:grounds')))]
-
-        for name,rediskey,pool in pools:
-            for jobhash in pool - done_keys:
-                print "delete %s %s" % (jobhash, name)
-                r.hdel(rediskey, jobhash)
-
+        #done_keys = set([x[10:] for x in r.keys('jobs:done:*')]) | \
+                #set([x for x in r.lrange('jobs:working', 0, -1)])
+        ## (name, Redis key, set)
+        #pools = [   ('source', 'jobs:sources', set(r.hkeys('jobs:sources'))),
+                    #('description', 'jobs:descs', set(r.hkeys('jobs:descs'))),
+                    #('time', 'jobs:times', set(r.hkeys('jobs:times'))),
+                    #('githashes', 'jobs:githashes', set(r.hkeys('jobs:githashes'))),
+                    #('ground', 'jobs:grounds', set(r.hkeys('jobs:grounds')))]
+        #for name,rediskey,pool in pools:
+            #for jobhash in pool - done_keys:
+                #print "delete %s %s" % (jobhash, name)
+                #r.hdel(rediskey, jobhash)
         r.delete('jobs:failed')
 
         clients = r.zrevrange('workers:hb', 0, -1)
@@ -242,3 +254,33 @@ class RedisDataStore:
         if num == 0:
             r.delete('jobs:working')
         print("Done!")
+
+    def push_heartbeat(self, idstring):
+        self.conn.zadd('workers:hb', self.conn.time()[0], idstring)
+
+    def remove_heartbeat(self,idstring):
+        self.conn.zrem('workers:hb', idstring)
+
+    def query_stop(self, host):
+        cmd = self.conn.get('workers:stop')
+        if cmd == 'ALL' or cmd == host:
+            return True
+        else:
+            return False
+
+    def remove_working_job(self, exp):
+        self.conn.lrem('jobs:working', 1, exp)
+
+    def reload_working_job(self, exp):
+        self.conn.lrem('jobs:working', 1, exp)
+        if exp is not None:
+            self.conn.lpush('jobs:new', exp)
+
+    def poll_work(self):
+        return self.conn.rpoplpush('jobs:new', 'jobs:working')
+
+    def job_fail(self):
+        self.conn.incr('jobs:failed')
+
+    def job_succeed(self):
+        self.conn.incr('jobs:numdone') 

@@ -13,34 +13,42 @@ This software would not be possible without the following components:
 * Python for the main driving and glue code
 * Redis_  for the distributed job management
 * rsyslog for remote logging
+* ZeroMQ_ for some networking bliss
 
 .. _redis: http://redis.io
+.. _zeromq: http://zeromq.org
 
 Redis Schema
 ############
 
-The Redis schema we are using for this is:
+The Redis schema we are using:
 
 jobs:new,jobs:working
-    List: <jobhash>|<json params object>
+    List: <jobhash>|<paramhash> experiment strings.
 
 jobs:numdone
     Int: The number of done jobs.
 
-jobs:done:<hash>:params
-    List: Contains all json params objects for this job.
-
-jobs:done:<hash>:<json params>
-    List: The list containing the completed job results. For sweep jobs the 
-    hash will be {hash}-{p} where p was the parameter for that run.
-
 jobs:sources
     Hashmap: A hashmap from job hash to gzipped source text.
 
-jobs:githashes,jobs:ground,jobs:time
-    Hashmaps: A hashmap from job hash to: the githash of the superproject that 
-    the job was posted under; the zlib compressed pickle of the ground truth 
-    object; and the unix epoch time that the job was first submitted.
+jobs:descs
+    Hashmap: <jobhash> -> Description string
+
+params:sources
+    Hashmap: from hashed JSON params to the JSON param string.
+
+jobs:times,experiments:times
+    Hashmap: from <jobhash> or <jobhash>|<paramhash> strings to unix epoch 
+    times of submission.
+
+experiments:ground
+    Hashmap: <jobshash>|<paramhash> strings to the zlib compressed pickle of 
+    the ground truth object
+
+jobs:githashes
+    Hashmap: jobhash to the githash of the superproject that the job was posted 
+    under
 
 workers:hbs
     Sorted Hashmap (heap): heartbeat times to json encoded info about the 
