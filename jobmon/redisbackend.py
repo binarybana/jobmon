@@ -2,6 +2,7 @@ import os, sys, shlex, time, sha, zlib, shutil
 import subprocess as sb
 import redis
 import simplejson as js
+import yaml
 from collections import Counter
 
 class RedisDataStore:
@@ -16,13 +17,13 @@ class RedisDataStore:
             experiments:times
         then adds experiments to jobs:new
         N: number of repeats requested
-        params: JSON param string
+        params: YAML param string
         """
         r = self.conn
         self.check_githash(jobhash)
-        if params == "" or params == None:
+        if params.strip() == "" or params == None:
             params = '{}'
-        cleanedparams = js.dumps(js.loads(params))
+        cleanedparams = yaml.dump(yaml.load(params)).strip()
         paramhash = self.hash(cleanedparams)
         exp = jobhash + '|' + paramhash
         r.hset('params:sources', paramhash, cleanedparams)
@@ -107,6 +108,10 @@ class RedisDataStore:
             if h.startswith(val):
                 return h
         sys.exit('Could not find valid hash that began with hash %s' % val)
+
+    def  get_params(self, phash):
+        """ Returns value of the parameter hash from params:sources """
+        return self.conn.hget('params:sources', phash)
 
     def hash(self, data):
         return sha.sha(data).hexdigest()
@@ -196,7 +201,7 @@ class RedisDataStore:
 
     def select_jobfiles(self):
         r = self.conn
-        hashes = sorted(r.hkeys('jobs:sources'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
+        hashes = sorted(r.hkeys('jobs:sources'), key=lambda x: int(r.hget('jobs:times', x) or '0'))
 
         for i, d in enumerate(hashes):
             desc = r.hget('jobs:descs', d) or ''
@@ -214,40 +219,16 @@ class RedisDataStore:
         return [hashes[i] for i in range(a,b+1)]
 
     def clean_jobfiles(self):
-        pass
-        #r = self.conn
-        #done_hashes = sorted(r.keys('jobs:done:*'), key=lambda x: int(r.hget('jobs:times', x[10:]) or '0'))
-        #jobs = self.select_jobfiles()
-        #print "Deleting:"
-        #for i in jobs:
-            #k = done_hashes[i][10:]
-            #print "Will delete experiment %d: %s %s" % (i, k[:5], (r.hget('jobs:descs',k) or ''))
-
-        #sel = raw_input("Are you sure [Y/N]? ")
-        #if sel.upper().strip() == 'Y':
-            #for i in jobs:
-                #k = done_hashes[i][10:]
-                #print "Deleting experiment %d: %s" % (i, k[:5])
-                #r.hdel('jobs:sources', k)
-                #r.hdel('jobs:descs', k)
-                #r.hdel('jobs:times', k)
-                #r.delete('jobs:done:'+k)
+        for res in self.select_jobfiles():
+            self.conn.hdel('jobs:descs', res)
+            self.conn.hdel('jobs:sources', res)
+            self.conn.hdel('jobs:times', res)
+            self.conn.hdel('jobs:githashes', res)
 
     def gc(self):
         r = self.conn
-        #done_keys = set([x[10:] for x in r.keys('jobs:done:*')]) | \
-                #set([x for x in r.lrange('jobs:working', 0, -1)])
-        ## (name, Redis key, set)
-        #pools = [   ('source', 'jobs:sources', set(r.hkeys('jobs:sources'))),
-                    #('description', 'jobs:descs', set(r.hkeys('jobs:descs'))),
-                    #('time', 'jobs:times', set(r.hkeys('jobs:times'))),
-                    #('githashes', 'jobs:githashes', set(r.hkeys('jobs:githashes'))),
-                    #('ground', 'jobs:grounds', set(r.hkeys('jobs:grounds')))]
-        #for name,rediskey,pool in pools:
-            #for jobhash in pool - done_keys:
-                #print "delete %s %s" % (jobhash, name)
-                #r.hdel(rediskey, jobhash)
         r.delete('jobs:failed')
+        r.delete('jobs:numdone')
 
         clients = r.zrevrange('workers:hb', 0, -1)
         num = len(clients)

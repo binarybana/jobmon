@@ -21,10 +21,10 @@ class WorkGroup:
 def pre_sync(quick=False):
     """Will be performed before every sync"""
     ## User specific code:
-    os.environ['LD_LIBRARY_PATH']='build:lib'
-    os.environ['PYTHONPATH'] = cfg['local_workdir']
-    os.environ['DB'] = cfg['db_server']
-    os.environ['SYSLOG'] = cfg['syslog_server']
+    os.environ['LD_LIBRARY_PATH']= os.path.join(cfg['local_workdir'], 'build')+':' + \
+            os.path.join(cfg['local_workdir'], 'lib')
+    os.environ['PYTHONPATH'] = cfg['local_workdir'] + ':' + cfg['local_jobmondir']
+    os.environ['SERVER'] = cfg['server']
     workdir = cfg['local_workdir']
 
     jobmondir = os.path.dirname(os.path.realpath(__file__))
@@ -35,11 +35,11 @@ def pre_sync(quick=False):
 
     if not quick:
         print "Updating CDE package..." 
-        #sb.check_call('/home/bana/bin/cde python mon.py rebuild'.split())
+        sb.check_call('/home/bana/bin/cde python -m jobmon.mon rebuild'.split())
         #sb.check_call('/home/bana/bin/cde python -m tests.test_simple'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
+        sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
         sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_tree'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_tree'.split()
         print "CDE Update Done."
     sb.check_call('rsync -a samcnet {}{}'.format(cde,workdir).split())
     sb.check_call('rsync -a build {}{}'.format(cde,workdir).split())
@@ -143,9 +143,9 @@ class SGEGroup(WorkGroup):
 
 ### Define Configuration ###
 cfg = {}
-cfg['db_server'] = "camdi16.tamu.edu"
-cfg['syslog_server'] = "camdi16.tamu.edu"
+cfg['server'] = "camdi16.tamu.edu"
 cfg['local_workdir'] = os.path.expanduser('~/GSP/research/samc/samcnet')
+cfg['local_jobmondir'] = os.path.expanduser('~/GSP/code/jobmon')
 cfg['hosts'] = {
         'wsgi'  : SGEGroup('wsgi', './', 90),
         'local' : Local(cfg['local_workdir'])

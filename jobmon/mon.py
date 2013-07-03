@@ -65,16 +65,14 @@ def recordDeath():
         except:
             pass
 
-def spawn(source, modname, param=None):
+def spawn(jobhash, paramhash):
     env = os.environ.copy()
-    if param:
-        env['PARAM'] = param
-    if source != 'rebuild':
-        env['WORKHASH'] = source
+    if jobhash != 'rebuild':
+        env['WORKHASH'] = jobhash + '|' + paramhash
+    env['PARAM'] = db.get_params(paramhash)
     env['UNIQ_ID'] = unique_id
-    #DB_LOC not needed as already in os.environ
-    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build' #TODO
-    spec = 'python -um {}'.format(modname)
+    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build' #FIXME
+    spec = 'python -um {}'.format('exps.'+jobhash) #FIXME
     return sb.Popen(spec.split(), env=env, bufsize=1, stdout=sb.PIPE, stderr=sb.PIPE, close_fds=True)
 
 def get_nonblocking_queue(fid):
@@ -117,6 +115,11 @@ if __name__ == '__main__':
         env = None
         state = 'idle'
         try:
+            os.makedirs('tmp')
+        except:
+            pass
+        os.chdir('tmp')
+        try:
             os.makedirs('exps') # Is there a better way to mkdir -p?
         except:
             pass
@@ -130,7 +133,7 @@ if __name__ == '__main__':
                     logger.info("Received stop command, shutting down.")
                     if child and child.poll() == None:
                         child.kill()
-                        db.remove_working_job(source)
+                        db.remove_working_job(workhash)
                     db.remove_heartbeat(unique_id)
                     break
 
@@ -145,13 +148,12 @@ if __name__ == '__main__':
 
                 if state == 'spawn':
                     logger.info('Spawning a new child')
-                    wsplit = workhash.split('|')
-                    source, env = wsplit
-                    # write exp source out at .exps/<source>.py
+                    source, env = workhash.split('|')
+                    # write exp source out at exps/<source>.py
                     if not os.path.exists('exps/'+source+'.py'):
                         with open('exps/'+source+'.py','w') as fid: 
                             fid.write(zlib.decompress(db.get_jobfile(source)))
-                    child = spawn(source, 'exps.'+source, env)
+                    child = spawn(source, env)
 
                     q_stdout = get_nonblocking_queue(child.stdout)
                     q_stderr = get_nonblocking_queue(child.stderr)

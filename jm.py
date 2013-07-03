@@ -34,9 +34,15 @@ where command is:
 
     jobs [verbose] - Job status.
 
-    clean - Delete old jobs.
+    clean - Select job files to delete from the database.
 
     gc - Clean up the garbage in the database.
+
+    spawn - Spawn jobmon daemon
+
+    killspawn - Kill jobmon daemon
+
+    cleanres - Delete all result files
 """
 
 def gethosts():
@@ -64,7 +70,8 @@ if __name__ == '__main__':
     # ^^Get locally defined config
     cmd = sys.argv[1]
 
-    db = rb.RedisDataStore(cfg['db_server'])
+    db = rb.RedisDataStore(cfg['server'])
+    pidfile = "/tmp/jobmon_daemon.pid"
 
     if cmd == 'sync' or cmd == 'qsync':
         quick = cmd.startswith('q')
@@ -93,8 +100,10 @@ if __name__ == '__main__':
             db.post_experiment(jobhash, N, '{}')
 
     elif cmd == 'postexp':
+        if not os.path.exists(pidfile):
+            print("WARNING: Jobmon daemon not running.")
         jobhash = db.select_jobfile()
-        params = raw_input("Enter job params (json/yaml): ")
+        params = raw_input("Enter job params (in YAML format): \n")
         N = int(raw_input("N: "))
         db.post_experiment(jobhash, N, params)
 
@@ -120,13 +129,17 @@ if __name__ == '__main__':
     elif cmd == 'clean':
         db.clean_jobfiles()
 
+    elif cmd == 'cleanres':
+        ans = raw_input("Are you sure you want to delete ALL result files? (y,n): ")
+        if ans.upper().strip() == 'Y':
+            os.system('rm -rf /home/bana/largeresearch/results/*')
+
     elif cmd == 'gc':
         db.gc()
 
     elif cmd == 'spawn':
         # Roughly from: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
         import os, atexit
-        pidfile = "/tmp/jobmon_daemon.pid"
         if os.path.exists(pidfile):
             print("Daemon already running at pid %d." % int(open(pidfile).read()))
             sys.exit()
@@ -149,14 +162,21 @@ if __name__ == '__main__':
         import time
 
         ctx = zmq.Context()
-        socket = ctx.socket(zmq.PULL)
+        socket = ctx.socket(zmq.REP)
         socket.bind('tcp://*:7000')
         try:
             while True:
                 name,data = socket.recv_multipart()
-                # FIXME This needs to write in the right folder
-                with open('/tmp/%s'%name,'w') as fid:
-                    fid.write(data)
+                jobhash,paramhash = name.split('|')
+                outdir = os.path.join('/home/bana/largeresearch/results', jobhash, paramhash)
+                if not os.path.exists(outdir):
+                    os.makedirs(outdir)
+                    i = 0
+                else:
+                    i = len(os.listdir(outdir))
+                with open(os.path.join(outdir,str(i)),'w') as fid:
+                    fid.write(zlib.decompress(data))
+                socket.send('OK')
         except:
             ctx.term()
             delpid(None)
