@@ -103,6 +103,8 @@ def kill(spawn):
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == 'rebuild':
         logger.info('Beginning dummy run for CDE rebuild')
+        db = rb.RedisDataStore(server)
+        workhash = db.poll_work()
         # This is just to 'exercise' CDE
         sys.exit()
     else:
@@ -126,6 +128,7 @@ if __name__ == '__main__':
         fid = open('exps/__init__.py','w')
         fid.close()
 
+        idletime = -1
         while True:
             try:
                 db.push_heartbeat(unique_id)
@@ -140,11 +143,17 @@ if __name__ == '__main__':
                 if state == 'idle':
                     #child is free
                     workhash = db.poll_work()
+                    if idletime == -1:
+                        idletime = time()
+                    elif time() - idletime > 3600:
+                        logger.info("Idled too long, shutting down.")
+                        break
                     if workhash is None: # no work
                         logger.info('Child free.')
                         sleep(2)
                     else:
                         state = 'spawn'
+                        idletime = -1
 
                 if state == 'spawn':
                     logger.info('Spawning a new child')
