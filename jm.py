@@ -22,8 +22,8 @@ where command is:
         an optional description. If N is given, then run the job N times with the
         empty '{}' parameter.
         
-    postexp - Start a job with specific parameters. Prompts will then ask for
-        relevant information.
+    postsweep, postexp - Start a job with specific parameters. Prompts will
+        then ask for relevant information.
 
     describe - Small textual blurb describing a jobfile file for easy
         retrieval in downstream processing.
@@ -107,13 +107,24 @@ if __name__ == '__main__':
         N = int(raw_input("N: "))
         db.post_experiment(jobhash, N, params)
 
+    elif cmd == 'postsweep':
+        jobhash = db.select_jobfile()
+        key = raw_input("Enter param key: \n")
+        N = int(raw_input("Runs per parameter value (N): "))
+        vals = raw_input("Enter values separated by spaces: \n").split()
+        for val in vals:
+            db.post_experiment(jobhash, N, '{%s: %s}' % (key,val))
+
     elif cmd == 'describe':
         jobhash = db.select_jobfile()
         desc = raw_input("Enter job description: ")
         db.describe_jobfile(jobhash, desc)
 
     elif cmd == 'source':
-        jobhash = db.select_jobfile()
+        if len(sys.argv) == 3:
+            jobhash = db.select_jobfile(int(sys.argv[2]))
+        else:
+            jobhash = db.select_jobfile()
         print zlib.decompress(db.get_jobfile(jobhash))
 
     elif cmd == 'kill':
@@ -136,6 +147,8 @@ if __name__ == '__main__':
 
     elif cmd == 'gc':
         db.gc()
+        ### FIXME HACK!!:
+        sb.check_call(shlex.split('ssh wsgi "rm -f ~/cde-package/cde-root/home/bana/GSP/research/samc/synthetic/rnaseq/out/*"'))
 
     elif cmd == 'spawn':
         # Roughly from: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
@@ -168,7 +181,7 @@ if __name__ == '__main__':
             while True:
                 name,data = socket.recv_multipart()
                 jobhash,paramhash = name.split('|')
-                outdir = os.path.join('/home/bana/largeresearch/results', jobhash, paramhash)
+                outdir = os.path.join('/home/bana/largeresearch/results', jobhash, paramhash) #FIXME
                 if not os.path.exists(outdir):
                     os.makedirs(outdir)
                     i = 0
