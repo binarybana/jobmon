@@ -37,9 +37,12 @@ def pre_sync(quick=False):
         print "Updating CDE package..." 
         sb.check_call('/home/bana/bin/cde python -m jobmon.mon rebuild'.split())
         #sb.check_call('/home/bana/bin/cde python -m tests.test_simple'.split())
-        sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
-        sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_tree'.split()
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.mpm_yousef'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.karen'.split())
+        #sb.check_call('/home/bana/bin/cde python -m tests.tcga'.split())
+        sb.check_call('/home/bana/bin/cde python -m tests.jk'.split())
         print "CDE Update Done."
     sb.check_call('rsync -a samcnet {}{}'.format(cde,workdir).split())
     sb.check_call('rsync -a build {}{}'.format(cde,workdir).split())
@@ -87,12 +90,11 @@ class Workstation(WorkGroup):
         print("Rsync done.")
 
     def launch_workers(self):
-        #os.chdir(self.workdir)
         env = os.environ.copy()
-        env['REDIS'] = cfg['redis_server']
-        env['SYSLOG'] = cfg['syslog_server']
-        spec = '{0} mon.py & '.format(self.python)
-        spec = 'ssh {} cd {}; '.format(self.sshname, self.workdir) + \
+        env['SERVER'] = cfg['server']
+        env['PYTHON_PATH'] = self.workdir + '/code/jobmon'
+        spec = '{0} -m jobmon.mon & '.format(self.python)
+        spec = 'ssh {} cd {}/research/samc/samcnet; '.format(self.sshname, self.workdir) + \
                 spec*self.cores
         #spec = 'ssh {} cat /proc/cpuinfo '.format(self.sshname) 
         print spec[:-2]
@@ -101,7 +103,7 @@ class Workstation(WorkGroup):
                 env=env, 
                 bufsize=-1)
                 #shell=True)
-        p.wait()
+        #p.wait()
 
     def kill_workers(self):
         pass #get to later
@@ -147,14 +149,18 @@ cfg['server'] = "camdi16.tamu.edu"
 cfg['local_workdir'] = os.path.expanduser('~/GSP/research/samc/samcnet')
 cfg['local_jobmondir'] = os.path.expanduser('~/GSP/code/jobmon')
 cfg['hosts'] = {
-        'wsgi'  : SGEGroup('wsgi', './', 90),
-        'local' : Local(cfg['local_workdir'])
-        #'toxic' : Workstation('toxic', 
-            #'.',
-            #'cde-package/cde-root/home/bana/AeroFS/GSP/research/samc/samcnet',
-            #'./python.cde',
-            #1)
-        }
+    'wsgi'  : SGEGroup('wsgi', './', 100),
+    'kubera'  : SGEGroup('kubera', './', 48),
+    'local' : Local(cfg['local_workdir']),
+    'sequencer' : Workstation('sequencer', '.', 
+        'cde-package/cde-root/home/bana/GSP',
+        './python.cde', 15)
+    #'toxic' : Workstation('toxic', 
+        #'.',
+        #'cde-package/cde-root/home/bana/GSP',
+        #'./python.cde',
+        #1)
+    }
 #cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
                     #'PYTHONPATH':'/home/bana/AeroFS/GSP/research/samc/samcnet'}#os.path.abspath(__file__)}
 
