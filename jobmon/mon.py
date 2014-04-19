@@ -1,4 +1,4 @@
-import sys, os, sha, atexit, traceback, uuid, zlib
+import sys, os, atexit, traceback, uuid, zlib
 import logging
 import logging.handlers
 import redis
@@ -33,12 +33,13 @@ def getHost():
 
 unique_id = getHost() + '-' + str(uuid.uuid1())
 
-level = logging.WARN
+#level = logging.WARN
+level = logging.INFO
 #level = os.environ.get('LOGLEVEL', logging.WARNING)
 
 h = logging.handlers.SysLogHandler((server,514))
 h.setLevel(level)
-formatter = logging.Formatter('%(name)s: samc %(levelname)s %(message)s')
+formatter = logging.Formatter('%(name)s: jobmon %(levelname)s %(message)s')
 h.setFormatter(formatter)
 
 hstream = logging.StreamHandler()
@@ -71,8 +72,10 @@ def spawn(jobhash, paramhash):
         env['WORKHASH'] = jobhash + '|' + paramhash
     env['PARAM'] = db.get_params(paramhash)
     env['UNIQ_ID'] = unique_id
-    env['LD_LIBRARY_PATH'] = '/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build' #FIXME
-    spec = 'python -um {}'.format('exps.'+jobhash) #FIXME
+    # All other variables (BINARYLOC, LD_LIBRARY_PATH etc..) will come directly from the master environment (see
+    # config.py for details)
+    print("about to spawn!")
+    spec = '{} {}'.format(env['BINARYLOC'], jobhash) 
     return sb.Popen(spec.split(), env=env, bufsize=1, stdout=sb.PIPE, stderr=sb.PIPE, close_fds=True)
 
 def get_nonblocking_queue(fid):
@@ -116,18 +119,6 @@ if __name__ == '__main__':
         source = None
         env = None
         state = 'idle'
-        try:
-            os.makedirs('tmp')
-        except:
-            pass
-        os.chdir('tmp')
-        try:
-            os.makedirs('exps') # Is there a better way to mkdir -p?
-        except:
-            pass
-        fid = open('exps/__init__.py','w')
-        fid.close()
-
         idletime = -1
         while True:
             try:
@@ -159,9 +150,9 @@ if __name__ == '__main__':
                     logger.info('Spawning a new child')
                     source, env = workhash.split('|')
                     # write exp source out at exps/<source>.py
-                    if not os.path.exists('exps/'+source+'.py'):
-                        with open('exps/'+source+'.py','w') as fid: 
-                            fid.write(zlib.decompress(db.get_jobfile(source)))
+                    if not os.path.exists(source):
+                        with open(source,'w') as fid: 
+                            fid.write(zlib.decompress(db.get_jobfile_db(source)))
                     child = spawn(source, env)
 
                     q_stdout = get_nonblocking_queue(child.stdout)

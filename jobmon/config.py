@@ -3,6 +3,23 @@ import subprocess as sb
 import shlex
 
 ### Definitions, don't change these ####
+
+def call(spec):
+    print ("Beginning {}".format(spec))
+    p = sb.Popen(spec.split())
+    ret = p.wait()
+    if ret != "0":
+        print("Success!")
+    else:
+        raise Exception("Call {} error with return code {}".format(spec, str(ret)))
+
+def rcall(loc, spec):
+    call('ssh {} {}'.format(loc, spec))
+
+def rsync(src, dest):
+    spec = 'rsync -aczL {} {}'.format(src,dest)
+    call(spec)
+
 class WorkGroup:
     """Defines a machine or groups of machines that are a logical unit. The
     following functions must be overwritten:
@@ -10,8 +27,31 @@ class WorkGroup:
     * launch_workers
     * kill_workers
     """
+    def __init__(self, **kwargs):
+        self.params = {}
+        for k in "binaryloc pythonloc localsyncdirs synctargetdir workdir localjobmondir remotejobmondir server".split():
+            assert k in kwargs, "{} not in kwargs! {}".format(k,kwargs)
+        self.params.update(kwargs)
+
+    def get_env(self, **kwargs):
+        #env = os.environ.copy()
+        absenv = {}
+        absenv['SERVER'] = self.params['server']
+        absenv['BINARYLOC'] = self.params['binaryloc']
+
+        addenv = {}
+        addenv['PYTHONPATH'] = self.params['remotejobmondir']
+        addenv['LD_LIBRARY_PATH'] = self.params['synctargetdir'] + '/DAI/deps'
+        addenv.update(kwargs)
+
+        return absenv, addenv
+
     def sync(self):
-       pass
+        assert('sshname' in self.params)
+        rsync(self.params['localsyncdirs'],'{sshname}:{synctargetdir}'.format(**self.params))
+        rsync(self.params['localjobmondir'],'{sshname}:{remotejobmondir}'.format(**self.params))
+        rcall(self.params['sshname'], 'mkdir -p {workdir}'.format(**self.params))
+
     def launch_workers(self):
         pass
     def kill_workers(self):
@@ -21,34 +61,8 @@ class WorkGroup:
 def pre_sync(quick=False):
     """Will be performed before every sync"""
     ## User specific code:
-    os.environ['LD_LIBRARY_PATH']= os.path.join(cfg['local_workdir'], 'build')+':' + \
-            os.path.join(cfg['local_workdir'], 'lib')
-    os.environ['PYTHONPATH'] = cfg['local_workdir'] + ':' + cfg['local_jobmondir']
-    os.environ['SERVER'] = cfg['server']
-    workdir = cfg['local_workdir']
-
-    jobmondir = os.path.dirname(os.path.realpath(__file__))
-    
-    os.chdir(cfg['local_workdir'])
-
-    cde = 'cde-package/cde-root'
-
-    if not quick:
-        print "Updating CDE package..." 
-        sb.check_call('/home/bana/bin/cde python -m jobmon.mon rebuild'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_simple'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_class'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.test_net'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.mpm_yousef'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.karen'.split())
-        #sb.check_call('/home/bana/bin/cde python -m tests.tcga'.split())
-        sb.check_call('/home/bana/bin/cde python -m tests.jk'.split())
-        print "CDE Update Done."
-    sb.check_call('rsync -a samcnet {}{}'.format(cde,workdir).split())
-    sb.check_call('rsync -a build {}{}'.format(cde,workdir).split())
-    sb.check_call('rsync -aH {}/ {}{}'.format(jobmondir,cde,jobmondir).split())
-    #sb.check_call('rsync -aH config.py {}{}'.format(cde,workdir).split())
-    print "CDE rsyncs Done."
+    # Maybe copy libdai.so here?
+    pass
 
 def post_sync():
     """Will be performed after every sync"""
@@ -56,111 +70,117 @@ def post_sync():
 
 ### Define Servers ###
 class Local(WorkGroup):
-    def __init__(self, workdir):
-        self.workdir = workdir
-
     def sync(self):
         # You... should be synchronized on your own machine right?
         pass
 
     def launch_workers(self):
         # Launch simple python
-        env = os.environ.copy()
-        os.environ['REDIS'] = cfg['redis_server']
-        os.environ['SYSLOG'] = cfg['syslog_server']
-        #os.environ['PYTHONPATH'] = ''
-        p = sb.Popen('python mon.py &', env=env)
-
-    def kill_workers(self):
-        pass #get to later
-
-class Workstation(WorkGroup):
-    def __init__(self, sshname, syncdir, workdir, python, cores):
-        self.sshname = sshname
-        self.syncdir = syncdir
-        self.workdir = workdir
-        self.python = python
-        self.cores = cores
-
-    def sync(self):
-        print("Rsyncing to %s" % self.sshname)
-        p = sb.Popen('rsync -aH cde-package {}:{}'.format(
-            self.sshname,self.syncdir).split())
-        p.wait()
-        print("Rsync done.")
-
-    def launch_workers(self):
-        env = os.environ.copy()
-        env['SERVER'] = cfg['server']
-        env['PYTHON_PATH'] = self.workdir + '/code/jobmon'
-        spec = '{0} -m jobmon.mon & '.format(self.python)
-        spec = 'ssh {} cd {}/research/samc/samcnet; '.format(self.sshname, self.workdir) + \
-                spec*self.cores
-        #spec = 'ssh {} cat /proc/cpuinfo '.format(self.sshname) 
-        print spec[:-2]
-        print ''
-        p = sb.Popen(shlex.split(spec[:-2]), 
-                env=env, 
+        spec = '{pythonloc} jobmon.mon & '.format(**self.params)
+        spec = spec*self.params['cores']
+        absenv, addenv = self.get_env()
+        absenv.update(addenv)
+        p = sb.Popen(shlex.split(spec[:-2]),  # FIXME Do i need the -2 here?
+                env=absenv,
                 bufsize=-1)
-                #shell=True)
         #p.wait()
 
-    def kill_workers(self):
-        pass #get to later
+class Workstation(WorkGroup):
+    def launch_workers(self):
+        absenv,addenv = self.get_env()
+        p = sb.Popen(shlex.split('ssh {sshname} cd {workdir}; sh -c "cat > job.sh"'.format(**self.params)), stdin=sb.PIPE)
+        p.stdin.write('#!/bin/sh\n')
+        p.stdin.write('\n'.join(('export {0}={1}'.format(x,y) for x,y in absenv.iteritems())))
+        p.stdin.write('\n')
+        p.stdin.write('\n'.join(('export {0}=${0}:{1}'.format(x,y) for x,y in addenv.iteritems())))
+        p.stdin.write('\n{pythonloc} -m jobmon.mon\n'.format(**self.params))
+        p.stdin.close()
+        p.wait()
+
+        spec = 'sh job.sh & '.format(**self.params)
+        spec = 'ssh {sshname} cd {workdir}; '.format(**self.params) + \
+                spec*self.params['cores']
+        #spec = 'ssh {sshname} cat /proc/cpuinfo '.format(self.params) 
+        print spec[:-2]
+        print ''
+        p = sb.Popen(shlex.split(spec[:-2]), bufsize=-1)
+        #p.wait()
+
 
 class SGEGroup(WorkGroup):
-    def __init__(self, sshname, workdir, cores):
-        self.sshname = sshname
-        self.workdir = workdir
-        self.cores = cores
-
-    def sync(self):
-        print ("Beginning rsync to %s... " % self.sshname)
-        print ("... rsync %s/cde-package -> %s:%s" % 
-                (cfg['local_workdir'], self.sshname, self.workdir))
-        p = sb.Popen('rsync -acz {0}/cde-package {1}:{2}'.format(
-            cfg['local_workdir'], self.sshname, self.workdir).split())
-        ret = p.wait()
-        if ret != "0":
-            print("Success!")
-        else:
-            raise Exception("Rsync error with return code %s" % str(ret))
-
     def launch_workers(self):
-        #qsub -N test -t 1:100 -j y samcjob.sh
-        p = sb.Popen('ssh {0} qsub -q normal.q -N dmon -e logs -o logs -t 1:{1} -j y samcjob.sh'.format(
-            self.sshname, self.cores).split())
+        absenv,addenv = self.get_env()
+        p = sb.Popen(shlex.split('ssh {sshname} cd {workdir}; sh -c "cat > job.sh"'.format(**self.params)), stdin=sb.PIPE)
+        p.stdin.write('#!/bin/sh\n')
+        
+        if self.params['type'] == 'PBS':
+            spec = 'ssh {sshname} cd {workdir}; qsub -N dmon -o logs/logs -t 1-{cores} -j oe job.sh'
+        else:
+            p.stdin.write('source ENV/bin/activate\n')
+            spec = 'ssh {sshname} cd {workdir}; qsub -q normal.q -N dmon -e logs -o logs -t 1:{cores} -j y job.sh'
+
+        p.stdin.write('\n'.join(('export {0}={1}'.format(x,y) for x,y in absenv.iteritems())))
+        p.stdin.write('\n')
+        p.stdin.write('\n'.join(('export {0}=${0}:{1}'.format(x,y) for x,y in addenv.iteritems())))
+        p.stdin.write('\ncd {workdir}\n'.format(**self.params))
+        p.stdin.write('\n{pythonloc} -m jobmon.mon\n'.format(**self.params))
+        p.stdin.close()
+        p.wait()
+        
+        p = sb.Popen(shlex.split(spec.format(**self.params)))
         ret = p.wait()
         if ret != "0":
             print("Success!")
         else:
             raise Exception("Error launching monitor daemons with return code %s" % str(ret))
 
-    def kill_workers(self):
-        pass
-        #print 'Killing processes on %s.' % host.hostname
-        #user = host.root.split('/')[2]
-        #spec = 'ssh {0.hostname} killall -q -u {1} python; killall -q -u {1} python2.7; killall -q -u {1} cde-exec; killall -q -u {1} sshd'.format(host, user)
-        #sb.Popen(shlex.split(spec))
-
 ### Define Configuration ###
+
+params = dict(
+        pythonloc = 'python',
+        binaryloc = 'julia',  ## Assume these two are on PATH
+        localsyncdirs = ' '.join(map(os.path.expanduser, '~/.julia/MCBN ~/.julia/OBC ~/.julia/DAI'.split())),
+        localjobmondir = os.path.expanduser('~/GSP/code/jobmon/'),
+        server = 'camdi16.tamu.edu',
+        synctargetdir = '/home/jason/.julia/v0.3',
+        workdir='mcbn_work',
+        remotejobmondir='/home/jason/jobmon'
+        )
+
+# but still need
+    #cores
+    #synctargetdir
+    #workdir
+    #remotejobmondir 
+# and sometimes:
+    #sshname
+# and eventually:
+    #samcjob.sh
+
+def dset(d, **kwargs):
+    d = d.copy()
+    for k,v in kwargs.iteritems():
+        d[k] = v
+    return d
+
 cfg = {}
 cfg['server'] = "camdi16.tamu.edu"
-cfg['local_workdir'] = os.path.expanduser('~/GSP/research/samc/samcnet')
-cfg['local_jobmondir'] = os.path.expanduser('~/GSP/code/jobmon')
 cfg['hosts'] = {
-    'wsgi'  : SGEGroup('wsgi', './', 100),
-    'kubera'  : SGEGroup('kubera', './', 48),
-    'local' : Local(cfg['local_workdir']),
-    'sequencer' : Workstation('sequencer', '.', 
-        'cde-package/cde-root/home/bana/GSP',
-        './python.cde', 15)
-    #'toxic' : Workstation('toxic', 
-        #'.',
-        #'cde-package/cde-root/home/bana/GSP',
-        #'./python.cde',
-        #1)
+    'wsgi': SGEGroup(**dset(params, sshname='wsgi', 
+        synctargetdir='/home/binarybana/.julia/v0.3', 
+        remotejobmondir='/home/binarybana/jobmon', 
+        cores=100, type='SGE')),
+    'kubera': SGEGroup(**dset(params, sshname='kubera', cores=56, type='PBS')),
+    'local': Local(**dset(params, cores = 1, workdir='/home/bana/tmp', remotejobmondir=params['localjobmondir'])),
+    'sequencer' : Workstation(**dset(params, sshname='sequencer', 
+                            workdir='/home/jason/tmp/mcbn_work', 
+                            remotejobmondir='/home/jason/GSP/code/jobmon', 
+                            cores=11)),
+    'toxic2' : Workstation(**dset(params, sshname='toxic2', 
+                            workdir='/home/jason/tmp/mcbn_work', 
+                            remotejobmondir='/home/jason/GSP/code/jobmon', 
+                            cores=30)),
     }
 #cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
                     #'PYTHONPATH':'/home/bana/AeroFS/GSP/research/samc/samcnet'}#os.path.abspath(__file__)}
-
+#'/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build' #FIXME

@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-import os, sys, shlex, time, sha, zlib, shutil
+import os, sys, shlex, time, hashlib, zlib, shutil
 import subprocess as sb
 import redis
 import simplejson as js
 from collections import Counter
+from jobmon import daemon
 import jobmon.redisbackend as rb
 
 usage_string = """Usage: jm command [args]
@@ -71,7 +72,6 @@ if __name__ == '__main__':
     cmd = sys.argv[1]
 
     db = rb.RedisDataStore(cfg['server'])
-    pidfile = "/tmp/jobmon_daemon.pid"
 
     if cmd == 'sync' or cmd == 'qsync':
         quick = cmd.startswith('q')
@@ -100,7 +100,7 @@ if __name__ == '__main__':
             db.post_experiment(jobhash, N, '{}')
 
     elif cmd == 'postexp':
-        if not os.path.exists(pidfile):
+        if not daemon.running():
             print("WARNING: Jobmon daemon not running.")
         jobhash = db.select_jobfile()
         params = raw_input("Enter job params (in YAML format): \n")
@@ -125,7 +125,7 @@ if __name__ == '__main__':
             jobhash = db.select_jobfile(int(sys.argv[2]))
         else:
             jobhash = db.select_jobfile()
-        print zlib.decompress(db.get_jobfile(jobhash))
+        print zlib.decompress(db.get_jobfile_db(jobhash))
 
     elif cmd == 'kill':
         # Right now we kill everything
@@ -151,61 +151,11 @@ if __name__ == '__main__':
         sb.check_call(shlex.split('ssh wsgi "rm -f ~/cde-package/cde-root/home/bana/GSP/research/samc/synthetic/rnaseq/out/*"'))
 
     elif cmd == 'spawn':
-        # Roughly from: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
-        import os, atexit
-        if os.path.exists(pidfile):
-            print("Daemon already running at pid %d." % int(open(pidfile).read()))
-            sys.exit()
-        pid = os.fork()
-        if pid > 0:
-            sys.exit() #exit first parent
-        os.chdir("/tmp")
-        os.setsid()
-        os.umask(0)
-        pid = os.fork()
-        if pid > 0:
-            sys.exit()
-        def delpid(x):
-            if os.path.exists(pidfile):
-                os.remove(pidfile)
-        atexit.register(delpid)
-        open(pidfile,'w').write("%s\n" % str(os.getpid()))
-
-        import zmq
-        import time
-
-        ctx = zmq.Context()
-        socket = ctx.socket(zmq.REP)
-        socket.bind('tcp://*:7000')
-        try:
-            while True:
-                name,data = socket.recv_multipart()
-                jobhash,paramhash = name.split('|')
-                outdir = os.path.join('/home/bana/largeresearch/results', jobhash, paramhash) #FIXME
-                if not os.path.exists(outdir):
-                    os.makedirs(outdir)
-                    i = 0
-                else:
-                    i = len(os.listdir(outdir))
-                with open(os.path.join(outdir,str(i)),'w') as fid:
-                    fid.write(zlib.decompress(data))
-                socket.send('OK')
-        except:
-            ctx.term()
-            delpid(None)
+        daemon.spawn_daemon()
 
     elif cmd == 'killspawn':
-        import os
-        from signal import SIGTERM
+        daemon.kill_daemon()
 
-        pidfile = "/tmp/jobmon_daemon.pid"
-
-        if not os.path.exists(pidfile):
-            print("Daemon not running?")
-            sys.exit()
-        pid = int(open(pidfile).read())
-        os.kill(pid, SIGTERM)
-        os.remove(pidfile)
     else:
         print "Command %s is not defined." % cmd
         print usage_string

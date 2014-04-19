@@ -1,4 +1,4 @@
-import os, sys, shlex, time, sha, zlib, shutil
+import os, sys, shlex, time, hashlib, zlib, shutil
 import random
 import string
 import subprocess as sb
@@ -6,6 +6,8 @@ import redis
 import simplejson as js
 import yaml
 from collections import Counter
+
+digestsize = 20
 
 class RedisDataStore:
     def __init__(self, loc):
@@ -34,6 +36,8 @@ class RedisDataStore:
 
     def check_githash(self, jobhash):
         r = self.conn
+        if not os.path.exists('.git'):
+            return
         githash = sb.check_output('git rev-parse HEAD'.split()).strip()
         storedgithash = r.hget('jobs:githashes', jobhash)
         if storedgithash is not None and githash != storedgithash:
@@ -64,7 +68,7 @@ class RedisDataStore:
             sb.check_call('echo "{}" >> {}'.format(rstr, source), shell=True)
             jobhash = self.get_jobhash(source)
 
-        r.hset('jobs:sources', jobhash, self.get_jobfile(source))
+        r.hset('jobs:sources', jobhash, self.get_jobfile_disk(source))
         r.hset('jobs:descs', jobhash, desc)
         r.hset('jobs:times', jobhash, r.time()[0])
         print "Posted hash: %s" % jobhash[:8]
@@ -101,13 +105,17 @@ class RedisDataStore:
         """ Gets job description in jobs:descs:<hash> """
         return self.conn.hget('jobs:descs', jobhash)
 
-    def get_jobfile(self, val):
-        """ Returns compressed source from file path or (partial) hash"""
-        r = self.conn
-        if val.endswith('.py'):
+    def get_jobfile_disk(self, val):
+        """ Returns compressed source from file path"""
+        if os.path.exists(val):
             with open(val,'r') as fid:
                 return zlib.compress(fid.read())
-        if len(val) == sha.digest_size:
+        sys.exit('Could not find valid source that began with hash %s' % val)
+
+    def get_jobfile_db(self, val):
+        """ Returns compressed source from (partial) hash"""
+        r = self.conn
+        if len(val) == digestsize:
             return r.hget('jobs:sources', val)
 
         for h in r.hkeys('jobs:sources'):
@@ -118,10 +126,10 @@ class RedisDataStore:
     def get_jobhash(self, val):
         """ Returns hash from file path or (partial) hash"""
         r = self.conn
-        if val.endswith('.py'):
+        if os.path.exists(val):
             with open(val,'r') as fid:
                 return self.hash(fid.read())
-        if len(val) == sha.digest_size:
+        if len(val) == digestsize:
             return val
 
         for h in r.hkeys('jobs:sources'):
@@ -134,7 +142,7 @@ class RedisDataStore:
         return self.conn.hget('params:sources', phash)
 
     def hash(self, data):
-        return sha.sha(data).hexdigest()
+        return hashlib.sha1(data).hexdigest()
 
     def kill_workers(self):
         r = self.conn
