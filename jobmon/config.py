@@ -29,7 +29,8 @@ class WorkGroup:
     """
     def __init__(self, **kwargs):
         self.params = {}
-        for k in "binaryloc pythonloc localsyncdirs synctargetdir workdir localjobmondir remotejobmondir server".split():
+        # LD_LIBRARY_PATH and syncpairs will be added later
+        for k in "binaryloc pythonloc homedir workdir localjobmondir remotejobmondir server".split():
             assert k in kwargs, "{} not in kwargs! {}".format(k,kwargs)
         self.params.update(kwargs)
 
@@ -41,14 +42,15 @@ class WorkGroup:
 
         addenv = {}
         addenv['PYTHONPATH'] = self.params['remotejobmondir']
-        addenv['LD_LIBRARY_PATH'] = self.params['synctargetdir'] + '/DAI/deps'
+        addenv['LD_LIBRARY_PATH'] = self.params['LD_LIBRARY_PATH'] 
         addenv.update(kwargs)
 
         return absenv, addenv
 
     def sync(self):
         assert('sshname' in self.params)
-        rsync(self.params['localsyncdirs'],'{sshname}:{synctargetdir}'.format(**self.params))
+        for src,dest in self.params['syncpairs']:
+            rsync(src,'{sshname}:{0}'.format(dest, **self.params))
         rsync(self.params['localjobmondir'],'{sshname}:{remotejobmondir}'.format(**self.params))
         rcall(self.params['sshname'], 'mkdir -p {workdir}'.format(**self.params))
 
@@ -136,26 +138,20 @@ class SGEGroup(WorkGroup):
 
 ### Define Configuration ###
 
-params = dict(
-        pythonloc = 'python',
-        binaryloc = 'julia',  ## Assume these two are on PATH
-        localsyncdirs = ' '.join(map(os.path.expanduser, '~/.julia/MCBN ~/.julia/OBC ~/.julia/DAI'.split())),
-        localjobmondir = os.path.expanduser('~/GSP/code/jobmon/'),
-        server = 'camdi16.tamu.edu',
-        synctargetdir = '/home/jason/.julia/v0.3',
-        workdir='mcbn_work',
-        remotejobmondir='/home/jason/jobmon'
-        )
-
-# but still need
+# full list
+    #homedir
+    #workdir
+    #syncpairs
+    #
     #cores
-    #synctargetdir
     #workdir
     #remotejobmondir 
-# and sometimes:
+    #
+    #localjobmondir
+    #binaryloc
+    #pythonloc
+    #
     #sshname
-# and eventually:
-    #samcjob.sh
 
 def dset(d, **kwargs):
     d = d.copy()
@@ -163,24 +159,65 @@ def dset(d, **kwargs):
         d[k] = v
     return d
 
+params = dict(
+        pythonloc = 'python',
+        binaryloc = 'julia',  ## Assume these two are on PATH
+        localjobmondir = os.path.expanduser('~/GSP/code/jobmon/'),
+        server = 'camdi16.tamu.edu',
+        workdir='mcbn_work',
+        homedir='/home/bana',
+        juliadir='.julia/v0.3',
+        remotejobmondir='jobmon'
+        )
+
+
 cfg = {}
 cfg['server'] = "camdi16.tamu.edu"
-cfg['hosts'] = {
-    'wsgi': SGEGroup(**dset(params, sshname='wsgi', 
-        synctargetdir='/home/binarybana/.julia/v0.3', 
-        remotejobmondir='/home/binarybana/jobmon', 
-        cores=100, type='SGE')),
-    'kubera': SGEGroup(**dset(params, sshname='kubera', cores=56, type='PBS')),
-    'local': Local(**dset(params, cores = 1, workdir='/home/bana/tmp', remotejobmondir=params['localjobmondir'])),
-    'sequencer' : Workstation(**dset(params, sshname='sequencer', 
-                            workdir='/home/jason/tmp/mcbn_work', 
-                            remotejobmondir='/home/jason/GSP/code/jobmon', 
-                            cores=11)),
-    'toxic2' : Workstation(**dset(params, sshname='toxic2', 
-                            workdir='/home/jason/tmp/mcbn_work', 
-                            remotejobmondir='/home/jason/GSP/code/jobmon', 
-                            cores=30)),
-    }
+cfg['hosts'] = {}
+cfg['hosts']['wsgi'] = SGEGroup(**dset(params, 
+                            sshname='wsgi', 
+                            homedir = '/home/binarybana',
+                            cores=100, type='SGE'))
+
+cfg['hosts']['kubera'] = SGEGroup(**dset(params, 
+                            homedir='/home/jason', 
+                            sshname='kubera', 
+                            cores=56, type='PBS'))
+
+cfg['hosts']['local'] = Local(**dset(params, 
+                            homedir='/home/bana',
+                            cores = 1, 
+                            workdir='tmp', 
+                            juliadir='.julia',
+                            remotejobmondir='GSP/code/jobmon'))
+
+cfg['hosts']['sequencer'] = Workstation(**dset(params, sshname='sequencer', 
+                            homedir='/home/jason',
+                            workdir='tmp/mcbn_work', 
+                            remotejobmondir='GSP/code/jobmon', 
+                            cores=11))
+
+cfg['hosts']['toxic2'] = Workstation(**dset(params, sshname='toxic2', 
+                            homedir='/home/jason',
+                            workdir='tmp/mcbn_work', 
+                            juliadir='.julia',
+                            remotejobmondir='GSP/code/jobmon', 
+                            cores=30))
+
+join = os.path.join
+localjulia = '/home/bana/.julia'
+
+for host in cfg['hosts'].values():
+    home = host.params['homedir']
+    # expanding homes
+    julia = join(home, host.params['juliadir'])
+    host.params['LD_LIBRARY_PATH'] = join(julia, 'DAI', 'deps')
+    host.params['juliadir'] = join(home, host.params['juliadir'])
+    host.params['workdir'] = join(home, host.params['workdir'])
+    host.params['remotejobmondir'] = join(home, host.params['remotejobmondir'])
+    host.params['syncpairs'] = [(' '.join(map(lambda x: join(localjulia, x), 'MCBN OBC DAI'.split())), julia),
+                        ('/home/bana/GSP/research/samc/genesearch/data', host.params['workdir'])]
+
 #cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
                     #'PYTHONPATH':'/home/bana/AeroFS/GSP/research/samc/samcnet'}#os.path.abspath(__file__)}
-#'/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build' #FIXME
+#'/share/apps/lib:.:/home/bana/GSP/research/samc/samcnet/lib:$HOME/GSP/research/samc/samcnet/build'
