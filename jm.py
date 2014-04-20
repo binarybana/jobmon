@@ -156,6 +156,9 @@ if __name__ == '__main__':
     elif cmd == 'killspawn':
         daemon.kill_daemon()
 
+    elif cmd == 'testspawn':
+        daemon.test_daemon()
+
     else:
         print "Command %s is not defined." % cmd
         print usage_string
