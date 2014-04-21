@@ -99,3 +99,6 @@ def kill_daemon():
     os.remove(pidfile)
     os.kill(pid, SIGTERM)
 
+def running():
+    return os.path.exists(pidfile)
+
