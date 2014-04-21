@@ -61,8 +61,8 @@ def spawn_daemon():
             tabname,paramhash = scrub(name)
             res = c.execute('SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE tbl_name=? LIMIT 1)', (tabname,))
             if not res.fetchone()[0]:
-                c.execute('CREATE TABLE {} (paramhash BLOB, data BLOB)'.format(tabname))
-            c.execute('INSERT INTO {} VALUES (?, ?)'.format(tabname), (paramhash, data))
+                c.execute('CREATE TABLE {} (data BLOB)'.format(tabname))
+            c.execute('INSERT INTO {} VALUES (?)'.format(tabname), (data,))
             socket.send('OK')
             last_insert_time = time.time()
 
