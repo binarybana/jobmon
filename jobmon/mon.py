@@ -33,8 +33,8 @@ def getHost():
 
 unique_id = getHost() + '-' + str(uuid.uuid1())
 
-#level = logging.WARN
-level = logging.INFO
+level = logging.WARN
+#level = logging.INFO
 #level = os.environ.get('LOGLEVEL', logging.WARNING)
 
 h = logging.handlers.SysLogHandler((server,514))
