@@ -3,8 +3,7 @@ import random
 import string
 import subprocess as sb
 import redis
-import simplejson as js
-import yaml
+import json
 from collections import Counter
 
 digestsize = 20
@@ -21,13 +20,15 @@ class RedisDataStore:
             experiments:times
         then adds experiments to jobs:new
         N: number of repeats requested
-        params: YAML param string
+        params: JSON param string
         """
         r = self.conn
         self.check_githash(jobhash)
         if params.strip() == "" or params == None:
             params = '{}'
-        cleanedparams = yaml.dump(yaml.load(params)).strip()
+        #cleanedparams = yaml.dump(yaml.load(params)).strip()
+        cleanedparams = json.dumps(json.loads(params)).strip()
+        cleanedparams = zlib.compress(cleanedparams)
         paramhash = self.hash(cleanedparams)
         exp = jobhash + '|' + paramhash
         r.hset('params:sources', paramhash, cleanedparams)
@@ -125,13 +126,14 @@ class RedisDataStore:
 
     def get_jobhash(self, val):
         """ Returns hash from file path or (partial) hash"""
-        r = self.conn
+        if len(val) == digestsize and val.isalnum():
+            return val
+
         if os.path.exists(val):
             with open(val,'r') as fid:
                 return self.hash(fid.read())
-        if len(val) == digestsize:
-            return val
 
+        r = self.conn
         for h in r.hkeys('jobs:sources'):
             if h.startswith(val):
                 return h
@@ -139,7 +141,7 @@ class RedisDataStore:
 
     def get_params(self, phash):
         """ Returns value of the parameter hash from params:sources """
-        return self.conn.hget('params:sources', phash)
+        return zlib.decompress(self.conn.hget('params:sources', phash))
 
     def hash(self, data):
         return hashlib.sha1(data).hexdigest()
