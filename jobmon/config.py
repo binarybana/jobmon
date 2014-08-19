@@ -78,13 +78,13 @@ class Local(WorkGroup):
 
     def launch_workers(self):
         # Launch simple python
-        spec = '{pythonloc} jobmon.mon & '.format(**self.params)
-        spec = spec*self.params['cores']
+        spec = '{pythonloc} -m jobmon.mon &'.format(**self.params)
         absenv, addenv = self.get_env()
         absenv.update(addenv)
-        p = sb.Popen(shlex.split(spec[:-2]),  # FIXME Do i need the -2 here?
-                env=absenv,
-                bufsize=-1)
+        for i in range(self.params['cores']):
+            sb.Popen(shlex.split(spec),  # FIXME Do i need the -2 here?
+                    env=absenv,
+                    bufsize=-1)
         #p.wait()
 
 class Workstation(WorkGroup):
@@ -95,17 +95,13 @@ class Workstation(WorkGroup):
         p.stdin.write('\n'.join(('export {0}={1}'.format(x,y) for x,y in absenv.iteritems())))
         p.stdin.write('\n')
         p.stdin.write('\n'.join(('export {0}=${0}:{1}'.format(x,y) for x,y in addenv.iteritems())))
-        p.stdin.write('\n{pythonloc} -m jobmon.mon\n'.format(**self.params))
+        for i in range(self.params['cores']):
+            p.stdin.write('\n{pythonloc} -m jobmon.mon &\n'.format(**self.params))
         p.stdin.close()
         p.wait()
 
-        spec = 'sh job.sh & '.format(**self.params)
-        spec = 'ssh {sshname} cd {workdir}; '.format(**self.params) + \
-                spec*self.params['cores']
-        #spec = 'ssh {sshname} cat /proc/cpuinfo '.format(self.params) 
-        print spec[:-2]
-        print ''
-        p = sb.Popen(shlex.split(spec[:-2]), bufsize=-1)
+        spec = 'ssh {sshname} cd {workdir}; sh job.sh &'.format(**self.params)
+        p = sb.Popen(shlex.split(spec))#, bufsize=-1)
         #p.wait()
 
 
@@ -186,7 +182,7 @@ cfg['hosts']['kubera'] = SGEGroup(**dset(params,
 
 cfg['hosts']['local'] = Local(**dset(params, 
                             homedir='/home/bana',
-                            cores = 1, 
+                            cores = 3, 
                             workdir='tmp', 
                             juliadir='.julia',
                             remotejobmondir='GSP/code/jobmon'))
@@ -195,14 +191,14 @@ cfg['hosts']['sequencer'] = Workstation(**dset(params, sshname='sequencer',
                             homedir='/home/jason',
                             workdir='tmp/mcbn_work', 
                             remotejobmondir='GSP/code/jobmon', 
-                            cores=11))
+                            cores=22))
 
 cfg['hosts']['toxic2'] = Workstation(**dset(params, sshname='toxic2', 
                             homedir='/home/jason',
                             workdir='tmp/mcbn_work', 
                             juliadir='.julia',
                             remotejobmondir='GSP/code/jobmon', 
-                            cores=30))
+                            cores=31))
 
 join = os.path.join
 localjulia = '/home/bana/.julia'
@@ -215,7 +211,7 @@ for host in cfg['hosts'].values():
     host.params['juliadir'] = join(home, host.params['juliadir'])
     host.params['workdir'] = join(home, host.params['workdir'])
     host.params['remotejobmondir'] = join(home, host.params['remotejobmondir'])
-    host.params['syncpairs'] = [(' '.join(map(lambda x: join(localjulia, x), 'MCBN OBC DAI'.split())), julia),
+    host.params['syncpairs'] = [(' '.join(map(lambda x: join(localjulia, x), 'MCBN OBC DAI HDF5'.split())), julia),
                         ('/home/bana/GSP/research/samc/genesearch/data', host.params['workdir'])]
 
 #cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
