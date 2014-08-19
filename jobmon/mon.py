@@ -74,7 +74,6 @@ def spawn(jobhash, paramhash):
     env['UNIQ_ID'] = unique_id
     # All other variables (BINARYLOC, LD_LIBRARY_PATH etc..) will come directly from the master environment (see
     # config.py for details)
-    print("about to spawn!")
     spec = '{} {}'.format(env['BINARYLOC'], jobhash) 
     return sb.Popen(spec.split(), env=env, bufsize=1, stdout=sb.PIPE, stderr=sb.PIPE, close_fds=True)
 
