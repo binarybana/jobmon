@@ -9,6 +9,7 @@ import json as js
 import hashlib
 import sys
 import binascii
+import msgpack as mp
 
 pidfile = "/tmp/jobmon_daemon.pid"
 outdb = "/home/bana/largeresearch/results.db"
@@ -57,12 +58,13 @@ def spawn_daemon():
     #try:
     while True:
         if socket.poll(1000):
-            name,data = socket.recv_multipart()
+            name,mpdata = socket.recv_multipart()
             tabname,paramhash = scrub(name)
+            data = mp.loads(mpdata)
             res = c.execute('SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE tbl_name=? LIMIT 1)', (tabname,))
             if not res.fetchone()[0]:
-                c.execute('CREATE TABLE {} (data BLOB)'.format(tabname))
-            c.execute('INSERT INTO {} VALUES (?)'.format(tabname), (data,))
+                c.execute('CREATE TABLE {} ({})'.format(tabname, data['schema']))
+            c.execute('INSERT INTO {} VALUES ({})'.format(tabname, data['insertschema']), tuple(data['data']))
             socket.send('OK')
             last_insert_time = time.time()
 
