@@ -100,7 +100,7 @@ if __name__ == '__main__':
             db.post_experiment(jobhash, N, '{}')
 
     elif cmd == 'postexp':
-        if not daemon.running():
+        if not daemon.running(config.pidfile):
             print("WARNING: Jobmon daemon not running.")
         jobhash = db.select_jobfile()
         params = raw_input("Enter job params (in YAML format): \n")
@@ -151,10 +151,10 @@ if __name__ == '__main__':
         sb.check_call(shlex.split('ssh wsgi "rm -f ~/cde-package/cde-root/home/bana/GSP/research/samc/synthetic/rnaseq/out/*"'))
 
     elif cmd == 'spawn':
-        daemon.spawn_daemon()
+        daemon.spawn_daemon(config.pidfile, config.outdb)
 
     elif cmd == 'killspawn':
-        daemon.kill_daemon()
+        daemon.kill_daemon(config.pidfile)
 
     elif cmd == 'testspawn':
         daemon.test_daemon()

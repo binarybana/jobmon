@@ -57,12 +57,19 @@ def log_uncaught_exceptions(ex_cls, ex, tb):
 
 sys.excepthook = log_uncaught_exceptions
 
+workhash = None
+state = 'idle'
+
 def recordDeath():
     if db is not None:
         db.remove_heartbeat(unique_id)
         try:
-            db.reload_working_job(workhash)
-            db.job_fail()
+            if workhash != None:
+                db.reload_working_job(workhash)
+            if state == 'stopping' or state == 'idle':
+                return
+            else:
+                db.job_fail()
         except:
             pass
 
@@ -72,6 +79,8 @@ def spawn(jobhash, paramhash):
         env['WORKHASH'] = jobhash + '|' + paramhash
     env['PARAM'] = db.get_params(paramhash)
     env['UNIQ_ID'] = unique_id
+    env['HOME'] = os.path.expanduser('~')
+    env['OPENBLAS_NUM_THREADS']='1'
     # All other variables (BINARYLOC, LD_LIBRARY_PATH etc..) will come directly from the master environment (see
     # config.py for details)
     spec = '{} {}'.format(env['BINARYLOC'], jobhash) 
@@ -114,16 +123,15 @@ if __name__ == '__main__':
         db = rb.RedisDataStore(server)
         atexit.register(recordDeath)
         child = None
-        workhash = None
         source = None
         env = None
-        state = 'idle'
         idletime = -1
         while True:
             try:
                 db.push_heartbeat(unique_id)
                 if db.query_stop(getHost()):
                     logger.info("Received stop command, shutting down.")
+                    state = 'stopping'
                     if child and child.poll() == None:
                         child.kill()
                         db.remove_working_job(workhash)
@@ -173,6 +181,7 @@ if __name__ == '__main__':
                         db.remove_working_job(workhash)
                         db.job_succeed()
                         state = 'idle'
+                        workhash = None
                     log_output(logger.info, q_stdout)
                     log_output(logger.error, q_stderr)
 

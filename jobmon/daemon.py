@@ -11,16 +11,13 @@ import sys
 import binascii
 import msgpack as mp
 
-pidfile = "/tmp/jobmon_daemon.pid"
-outdb = "/home/bana/largeresearch/results.db"
-
 def scrub(s):
     x,y = s.split('|')
     assert (x.isalnum() and y.isalnum()), "NOT ALNUM: {} {}".format(x,y)
     y = binascii.unhexlify(y)
     return 'job_' + x, y
 
-def spawn_daemon():
+def spawn_daemon(pidfile, outdb):
     # Roughly from: http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
     if os.path.exists(pidfile):
         print("Daemon already running at pid %d." % int(open(pidfile).read()))
@@ -93,7 +90,7 @@ def test_daemon():
     print("Time for 20 sends: {}".format(t2-t1))
     ctx.term()
 
-def kill_daemon():
+def kill_daemon(pidfile):
     if not os.path.exists(pidfile):
         print("Daemon not running?")
         sys.exit()
@@ -101,6 +98,6 @@ def kill_daemon():
     os.remove(pidfile)
     os.kill(pid, SIGTERM)
 
-def running():
+def running(pidfile):
     return os.path.exists(pidfile)
 

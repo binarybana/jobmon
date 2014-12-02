@@ -161,7 +161,7 @@ params = dict(
         pythonloc = 'python',
         binaryloc = 'julia',  ## Assume these two are on PATH
         localjobmondir = os.path.expanduser('~/GSP/code/jobmon/'),
-        server = 'nfsc-oracle.tamu.edu',
+        server = 'camdi16.tamu.edu',
         workdir='mcbn_work',
         homedir='/home/bana',
         juliadir='.julia/v0.3',
@@ -170,7 +170,7 @@ params = dict(
 
 
 cfg = {}
-cfg['server'] = "nfsc-oracle.tamu.edu"
+cfg['server'] = "camdi16.tamu.edu"
 cfg['hosts'] = {}
 cfg['hosts']['wsgi'] = SGEGroup(**dset(params, 
                             sshname='wsgi', 
@@ -183,9 +183,10 @@ cfg['hosts']['kubera'] = SGEGroup(**dset(params,
                             cores=56, type='PBS'))
 
 cfg['hosts']['local'] = Local(**dset(params, 
-                            homedir='/home/jason',
-                            cores = 32, 
-                            workdir='tmp/mcbn_work', 
+                            homedir='/home/bana',
+                            cores = 3, 
+                            workdir='tmp', 
+                            juliadir='.julia',
                             remotejobmondir='GSP/code/jobmon'))
 
 cfg['hosts']['sequencer'] = Workstation(**dset(params, sshname='sequencer', 
@@ -193,6 +194,12 @@ cfg['hosts']['sequencer'] = Workstation(**dset(params, sshname='sequencer',
                             workdir='tmp/mcbn_work', 
                             remotejobmondir='GSP/code/jobmon', 
                             cores=20))
+
+cfg['hosts']['oracle'] = Workstation(**dset(params, sshname='oracle', 
+                            homedir='/home/jason',
+                            workdir='tmp/mcbn_work', 
+                            remotejobmondir='GSP/code/jobmon', 
+                            cores=30))
 
 cfg['hosts']['toxic2'] = Workstation(**dset(params, sshname='toxic2', 
                             homedir='/home/jason',
