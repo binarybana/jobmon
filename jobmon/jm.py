@@ -5,7 +5,7 @@ import shlex
 import zlib
 import itertools
 import subprocess as sb
-from . import daemon
+import daemon
 import redisbackend as rb
 
 usage_string = """Usage: jm command [args]
