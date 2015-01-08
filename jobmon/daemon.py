@@ -58,10 +58,11 @@ def spawn_daemon(pidfile, outdb):
             name,mpdata,blobdata = socket.recv_multipart()
             tabname,paramhash = scrub(name)
             data = mp.loads(mpdata)
+            insertschema = ','.join(['?']*(len(data['data'])+1))
             res = c.execute('SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE tbl_name=? LIMIT 1)', (tabname,))
             if not res.fetchone()[0]:
                 c.execute('CREATE TABLE {} ({})'.format(tabname, data['schema']))
-            c.execute('INSERT INTO {} VALUES ({})'.format(tabname, data['insertschema']), tuple(data['data'])+(blobdata,))
+            c.execute('INSERT INTO {} VALUES ({})'.format(tabname, insertschema), tuple(data['data'])+(buffer(blobdata),))
             socket.send('OK')
             last_insert_time = time.time()
 
