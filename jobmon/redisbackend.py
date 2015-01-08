@@ -1,4 +1,8 @@
-import os, sys, shlex, time, hashlib, zlib, shutil
+import os
+import sys
+import time
+import hashlib
+import zlib
 import random
 import string
 import subprocess as sb
@@ -7,6 +11,7 @@ import json
 from collections import Counter
 
 digestsize = 20
+
 
 class RedisDataStore:
     def __init__(self, loc):
@@ -24,9 +29,10 @@ class RedisDataStore:
         """
         r = self.conn
         self.check_githash(jobhash)
-        if params.strip() == "" or params == None:
+        if params.strip() == "" or params is None:
             params = '{}'
-        #cleanedparams = yaml.dump(yaml.load(params)).strip()
+        # cleanedparams = yaml.dump(yaml.load(params)).strip()
+        print(params)
         cleanedparams = json.dumps(json.loads(params)).strip()
         cleanedparams = zlib.compress(cleanedparams)
         paramhash = self.hash(cleanedparams)
@@ -42,29 +48,30 @@ class RedisDataStore:
         githash = sb.check_output('git rev-parse HEAD'.split()).strip()
         storedgithash = r.hget('jobs:githashes', jobhash)
         if storedgithash is not None and githash != storedgithash:
-            print('ERROR: This jobfile has already been run '+\
-                'under a different version of the code.')
+            print('ERROR: This jobfile has already been run ' +
+                  'under a different version of the code.')
             sys.exit(-1)
-            #githash = githash + ' + ' + storedgithash
+            # githash = githash + ' + ' + storedgithash
         r.hset('jobs:githashes', jobhash, githash)
 
     def post_jobfile(self, source, desc):
-        """ 
-        Posts job in jobs:sources 
+        """
+        Posts job in jobs:sources
         source: path to source or [partial] existing hash
-        desc: string description saved to jobs:descs 
+        desc: string description saved to jobs:descs
         """
         r = self.conn
         jobhash = self.get_jobhash(source)
 
         if r.hexists('jobs:sources', jobhash):
-            print("WARNING: This jobfile has already been submitted.\n" +\
-                    "Modifying file and resubmitting.")
+            print("WARNING: This jobfile has already been submitted.\n" +
+                  "Modifying file and resubmitting.")
             N = 12
-            rstr = "\n#" + ''.join(random.choice(string.ascii_uppercase + 
-                string.digits) for x in range(N))
+            rstr = "\n#" + ''.join(
+                random.choice(string.ascii_uppercase +
+                              string.digits) for x in range(N))
             if not os.path.exists(source):
-                print("ERROR: Cannot modify source {}, quiting.".format(source))
+                print("ERROR: Cannot change source {} quiting.".format(source))
                 sys.exit(-1)
             sb.check_call('echo "{}" >> {}'.format(rstr, source), shell=True)
             jobhash = self.get_jobhash(source)
@@ -226,17 +233,20 @@ class RedisDataStore:
                 print '\t{0:<15} with hb {1:3.1f} seconds ago'\
                     .format(cl, curr_time[0] + (curr_time[1]*1e-6) - int(r.zscore('workers:hb',x)))
 
-    def select_jobfile(self, sel=None):
-        return self.select_jobfiles(sel)[0]
+    def select_jobfile(self, sel=None, fullhashes=False):
+        return self.select_jobfiles(sel, fullhashes)[0]
 
-    def select_jobfiles(self, sel=None):
+    def select_jobfiles(self, sel=None, fullhashes=False):
         r = self.conn
         hashes = sorted(r.hkeys('jobs:sources'), key=lambda x: int(r.hget('jobs:times', x) or '0'))
 
         if sel is None:
             for i, d in enumerate(hashes):
                 desc = r.hget('jobs:descs', d) or ''
-                print "%4d. %s %s" % (i, d[:5], desc)
+                if fullhashes:
+                    print "%4d. %s %s" % (i, d, desc)
+                else:
+                    print "%4d. %s %s" % (i, d[:5], desc)
 
             sel = raw_input("Choose a dataset or range of datasets or 'q' to exit: ")
             sel = [x.strip() for x in sel.split('-')]
