@@ -1,30 +1,31 @@
 #!/usr/bin/env python
-import os, sys, shlex, time, hashlib, zlib, shutil
+import os
+import sys
+import shlex
+import zlib
+import itertools
 import subprocess as sb
-import redis
-import simplejson as js
-from collections import Counter
-from jobmon import daemon
-import jobmon.redisbackend as rb
+from . import daemon
+import redisbackend as rb
 
 usage_string = """Usage: jm command [args]
 where command is:
 
-    [q]sync [<host> ...] - Synchronize all or a subset of 
+    [q]sync [<host> ...] - Synchronize all or a subset of
         children. qsync is a partial (rsync only) sync.
 
-    launch [<host> ...] - Launch children monitor daemons 
+    launch [<host> ...] - Launch children monitor daemons
         on all or a subset of hosts.
 
-    kill [<host> ...] - Kills children monitor daemons 
+    kill [<host> ...] - Kills children monitor daemons
         on all or a subset of hosts.
 
     postjob <experiment file> [desc] [N] - Post job file to the database with
-        an optional description. If N is given, then run the job N times with the
-        empty '{}' parameter.
-        
-    postsweep, postexp - Start a job with specific parameters. Prompts will
-        then ask for relevant information.
+        an optional description. If N is given, then run the job N times with
+        the empty '{}' parameter.
+
+    postsweep, post2dsweep, postexp - Start a job with specific parameters.
+        Prompts will then ask for relevant information.
 
     describe - Small textual blurb describing a jobfile file for easy
         retrieval in downstream processing.
@@ -46,8 +47,9 @@ where command is:
     cleanres - Delete all result files
 """
 
+
 def gethosts():
-    ''' Get and check hosts in sys.argv '''
+    ''' get and check hosts in sys.argv '''
     if len(sys.argv) == 2:
         hosts = cfg['hosts'].keys()
     else:
@@ -65,8 +67,8 @@ if __name__ == '__main__':
         print usage_string
         sys.exit(-1)
 
-    sys.path.insert(0,'')
-    from jobmon import config 
+    sys.path.insert(0, '')
+    from jobmon import config
     from jobmon.config import cfg
     # ^^Get locally defined config
     cmd = sys.argv[1]
@@ -95,7 +97,7 @@ if __name__ == '__main__':
 
         jobhash = db.post_jobfile(loc, desc)
 
-        if len(sys.argv) > 4: # Go ahead and post the empty experiment
+        if len(sys.argv) > 4:  # Go ahead and post the empty experiment
             N = int(sys.argv[4])
             db.post_experiment(jobhash, N, '{}')
 
@@ -109,11 +111,24 @@ if __name__ == '__main__':
 
     elif cmd == 'postsweep':
         jobhash = db.select_jobfile()
-        key = raw_input("Enter param key: \n")
         N = int(raw_input("Runs per parameter value (N): "))
+        key = raw_input("Enter param key: \n")
         vals = raw_input("Enter values separated by spaces: \n").split()
         for val in vals:
-            db.post_experiment(jobhash, N, '{%s: %s}' % (key,val))
+            db.post_experiment(jobhash, N, '{"%s": %s}' % (key, val))
+
+    elif cmd == 'post2dsweep':
+        jobhash = db.select_jobfile()
+        N = int(raw_input("Runs per parameter value (N): "))
+        key1 = raw_input("Enter param 1 key: \n")
+        vals1 = raw_input("Enter values for key 1 separated by spaces: \n"
+                          ).split()
+        key2 = raw_input("Enter param 2 key: \n")
+        vals2 = raw_input("Enter values for key 2 separated by spaces: \n"
+                          ).split()
+        for vals in itertools.product(vals1, vals2):
+            db.post_experiment(jobhash, N, '{"%s": %s, "%s": %s}' %
+                               (key1, vals[0], key2, vals[1]))
 
     elif cmd == 'describe':
         jobhash = db.select_jobfile()
@@ -122,7 +137,10 @@ if __name__ == '__main__':
 
     elif cmd == 'source':
         if len(sys.argv) == 3:
-            jobhash = db.select_jobfile(int(sys.argv[2]))
+            if sys.argv[2] == 'v':
+                jobhash = db.select_jobfile(fullhashes=True)
+            else:
+                jobhash = db.select_jobfile(int(sys.argv[2]))
         else:
             jobhash = db.select_jobfile()
         print zlib.decompress(db.get_jobfile_db(jobhash))
@@ -130,10 +148,10 @@ if __name__ == '__main__':
     elif cmd == 'kill':
         # Right now we kill everything
         db.kill_workers()
-    
+
     elif cmd == 'jobs':
         db.job_status(sys.argv)
-        
+
     elif cmd == 'net':
         db.worker_status(sys.argv)
 
@@ -141,14 +159,18 @@ if __name__ == '__main__':
         db.clean_jobfiles()
 
     elif cmd == 'cleanres':
-        ans = raw_input("Are you sure you want to delete ALL result files? (y,n): ")
+        ans = raw_input(
+            "Are you sure you want to delete ALL result files? (y,n): ")
         if ans.upper().strip() == 'Y':
             os.system('rm -rf /home/bana/largeresearch/results/*')
 
     elif cmd == 'gc':
         db.gc()
-        ### FIXME HACK!!:
-        sb.check_call(shlex.split('ssh wsgi "rm -f ~/cde-package/cde-root/home/bana/GSP/research/samc/synthetic/rnaseq/out/*"'))
+        # FIXME HACK!!:
+        sb.check_call(shlex.split(
+            'ssh wsgi "rm -f ' +
+            '~/cde-package/cde-root/home/bana/GSP/' +
+            'research/samc/synthetic/rnaseq/out/*"'))
 
     elif cmd == 'spawn':
         daemon.spawn_daemon(config.pidfile, config.outdb)
@@ -163,4 +185,3 @@ if __name__ == '__main__':
         print "Command %s is not defined." % cmd
         print usage_string
         sys.exit(-1)
-
