@@ -18,9 +18,11 @@ This software would not be possible without the following components:
 * Redis_  for the distributed job management
 * rsyslog for remote logging
 * ZeroMQ_ for some networking bliss
+* Pytest_ for showing me how testing in Python can be
 
 .. _redis: http://redis.io
 .. _zeromq: http://zeromq.org
+.. _pytest: http://pytest.org/latest/
 
 Installation
 ############
