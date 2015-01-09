@@ -5,6 +5,10 @@ JobMon is a distributed job manager designed to ease the process of running
 parallel simulations on heterogenous computing infrastructure (groups of 
 clusters and workstations). 
 
+Note: This package is probably not suitable for you. I wrote it myself for a 
+specialized scenario and I would recommend many of the other more mature Python 
+distributed task managers that exist (like Celery). 
+
 Building Blocks
 ###############
 
@@ -17,6 +21,75 @@ This software would not be possible without the following components:
 
 .. _redis: http://redis.io
 .. _zeromq: http://zeromq.org
+
+Installation
+############
+Tested in a clean Ubuntu 14.04.1 VM::
+
+  sudo apt-get install redis-server python-pip git libzmq3 libzmq3-dev python-dev
+  pip install git+git://github.com/binarybana/jobmon.git
+  
+And if you'd like to run tests, or develop localy, then you'll need to clone 
+from github directly::
+
+  $ git clone https://github.com/binarybana/jobmon.git
+  $ cd jobmon
+  $ pip install -e . # will install dependencies and a local development copy
+  $ py.test
+
+  ============================= test session starts ==========================
+  platform linux2 -- Python 2.7.5 -- py-1.4.26 -- pytest-2.6.4
+  collected 2 items 
+
+  tests/test_redis.py ..
+
+  =========================== 2 passed in 0.06 seconds =======================
+
+Usage
+#####
+
+First setup the configuration script jobmon/config.py to add the details about 
+the python environment, number of processes, etc. in each cluster/workstation 
+that you wish to run jobs on. These jobs will then be spawned through an SSH 
+connection.
+
+Currently this process is quite fragile, and there are other Python job servers 
+that spawn through SSH which are probably better for you. So caveat emptor!
+
+Then startup the forking daemon::
+
+  jm spawn
+
+After that, synchronize your local codebase with remote codebases using::
+
+  jm sync [hosts [...]]
+
+And then launch the worker monitor daemons remotely with::
+
+  jm launch [hosts [...]]
+
+Monitor the cluster status with::
+
+  jm net
+
+Submit jobs to the cluster with::
+
+  jm postjob <module.py> <job description> [Number of tasks to run]
+
+Monitor their progress with::
+
+  jm jobs
+
+Run parameter sweeps across a range of paramemters::
+
+  jm postsweep
+  jm post2Dsweep
+
+And view and cleanup posted experiment files with::
+
+  jm source
+  jm clean
+  jm gc
 
 Redis Schema
 ############
