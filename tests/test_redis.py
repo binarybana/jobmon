@@ -24,3 +24,5 @@ def test_job_status(rback):
     rback.job_fail()
     assert('1' == rback.conn.get('jobs:failed'))
     assert('1' == rback.conn.get('jobs:numdone'))
+
+# TODO: Someday write more tests!
