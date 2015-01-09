@@ -12,18 +12,18 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='samcnet',
+    name='jobmon',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
     version='0.1.0',
 
-    description='A toolkit for Bayesian analysis of sequencing data',
+    description='Yet another distributed job manager/launcher.',
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/binarybana/samcnet',
+    url='https://github.com/binarybana/jobmon',
 
     # Author details
     author='Jason Knight',
@@ -41,8 +41,8 @@ setup(
         'Development Status :: 3 - Alpha',
 
         # Indicate who your project is intended for
-        'Intended Audience :: Computational Biologists',
-        'Topic :: Machine Learning :: Biological data analysis',
+        'Intended Audience :: Developers',
+        'Topic :: Distributed applications',
 
         # Pick your license as you wish (should match "license" above)
         'License :: OSI Approved :: MIT License',
@@ -53,7 +53,7 @@ setup(
     ],
 
     # What does your project relate to?
-    keywords='Bayesian analysis machine-learning',
+    keywords='distributed job runner',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -63,12 +63,12 @@ setup(
     # project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['redis', 'msgpack-python', 'pyzmq'],
+    install_requires=['redis', 'msgpack-python', 'pyzmq', 'pytest'],
 
     # List additional groups of dependencies here (e.g. development dependencies).
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
-    extras_require = {},
+    extras_require={},
 
     # If there are data files included in your packages that need to be
     # installed, specify them here.  If using Python 2.6 or less, then these
@@ -86,7 +86,7 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'jm=jobmon:main',
+            'jm=jobmon.jm:main',
         ],
     },
 )

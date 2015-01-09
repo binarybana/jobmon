@@ -62,7 +62,7 @@ def gethosts():
 
     return hosts
 
-if __name__ == '__main__':
+def main():
     if len(sys.argv) < 2:
         print usage_string
         sys.exit(-1)
@@ -185,3 +185,6 @@ if __name__ == '__main__':
         print "Command %s is not defined." % cmd
         print usage_string
         sys.exit(-1)
+
+if __name__ == '__main__':
+    main()
