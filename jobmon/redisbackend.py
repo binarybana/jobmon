@@ -14,8 +14,8 @@ digestsize = 20
 
 
 class RedisDataStore:
-    def __init__(self, loc):
-        self.conn = redis.StrictRedis(loc)
+    def __init__(self, loc, db=0):
+        self.conn = redis.StrictRedis(loc, db=db)
 
     def post_experiment(self, jobhash, N, params):
         """
@@ -282,7 +282,7 @@ class RedisDataStore:
     def push_heartbeat(self, idstring):
         self.conn.zadd('workers:hb', self.conn.time()[0], idstring)
 
-    def remove_heartbeat(self,idstring):
+    def remove_heartbeat(self, idstring):
         self.conn.zrem('workers:hb', idstring)
 
     def query_stop(self, host):
@@ -307,4 +307,4 @@ class RedisDataStore:
         self.conn.incr('jobs:failed')
 
     def job_succeed(self):
-        self.conn.incr('jobs:numdone') 
+        self.conn.incr('jobs:numdone')
