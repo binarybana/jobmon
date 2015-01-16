@@ -8,6 +8,9 @@ import subprocess as sb
 import daemon
 import redisbackend as rb
 
+from jobmon import config
+from jobmon.config import cfg
+
 usage_string = """Usage: jm command [args]
 where command is:
 
@@ -68,8 +71,6 @@ def main():
         sys.exit(-1)
 
     sys.path.insert(0, '')
-    from jobmon import config
-    from jobmon.config import cfg
     # ^^Get locally defined config
     cmd = sys.argv[1]
 
