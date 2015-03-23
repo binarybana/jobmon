@@ -40,6 +40,7 @@ def spawn_daemon(pidfile, outdb):
     #conn = sqlite3.connect(outdb, isolation_level=None)
     conn.text_factory = str
     c = conn.cursor()
+    c.execute('PRAGMA journal_mode=WAL')
 
     def delpid():
         if os.path.exists(pidfile):
