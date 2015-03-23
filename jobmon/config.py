@@ -184,7 +184,7 @@ cfg['hosts']['kubera'] = SGEGroup(**dset(params,
 
 cfg['hosts']['local'] = Local(**dset(params, 
                             homedir='/home/jason',
-                            cores = 32, 
+                            cores = 31, 
                             workdir='tmp/mcbn_work', 
                             remotejobmondir='GSP/code/jobmon'))
 
@@ -202,7 +202,7 @@ cfg['hosts']['toxic2'] = Workstation(**dset(params, sshname='toxic2',
                             cores=31))
 
 join = os.path.join
-localjulia = '/home/bana/.julia'
+localjulia = '/home/jason/.julia/v0.3'
 
 for host in cfg['hosts'].values():
     home = host.params['homedir']
@@ -212,8 +212,8 @@ for host in cfg['hosts'].values():
     host.params['juliadir'] = join(home, host.params['juliadir'])
     host.params['workdir'] = join(home, host.params['workdir'])
     host.params['remotejobmondir'] = join(home, host.params['remotejobmondir'])
-    host.params['syncpairs'] = [(' '.join(map(lambda x: join(localjulia, x), 'MCBN OBC DAI HDF5'.split())), julia),
-                        ('/home/bana/GSP/research/samc/genesearch/data', host.params['workdir'])]
+    host.params['syncpairs'] = [(' '.join(map(lambda x: join(localjulia, x), 'MCBN SAMC'.split())), julia),
+                        ('/home/jason/GSP/research/bayes/genesearch/data', host.params['workdir'])]
 
 #cfg['env_vars'] = {'LD_LIBRARY_PATH':"lib:build:.", 
                     #'PYTHONPATH':'/home/bana/AeroFS/GSP/research/samc/samcnet'}#os.path.abspath(__file__)}
